@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StepFun Token 用量监控</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--muted:#8a919f;--line:#ebedf0;--p:#5b7cfa;--c:#2fb8a6;--warn:#e2574c;--ok:#2fb86a}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);padding:24px 16px}
+.wrap{max-width:1080px;margin:0 auto}
+h1{font-size:20px}
+.sub{color:var(--muted);font-size:12px;margin:4px 0 20px}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card .k{font-size:12px;color:var(--muted)}
+.card .v{font-size:24px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.card .v small{font-size:12px;font-weight:400;color:var(--muted)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.panel h2{font-size:14px;margin-bottom:12px;font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--muted);font-weight:500;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:3px;min-width:60px}
+.bar i{display:block;height:100%;background:var(--p)}
+.bar.c i{background:var(--c)}
+.pill{display:inline-block;padding:0 6px;border-radius:4px;font-size:12px;background:#eef1f6}
+.pill.ok{background:#e6f6ee;color:var(--ok)}
+.pill.err{background:#fdecea;color:var(--warn)}
+.err{color:var(--warn)}
+.off{padding:60px 20px;text-align:center;color:var(--muted);font-size:14px}
+.off code{background:#eef1f6;padding:2px 6px;border-radius:4px}
+.legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>StepFun API Token 用量监控</h1>
+  <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥 · 每 30 秒自动刷新</div>
+  <div id="app"><div class="off">正在连接本地代理…</div></div>
+</div>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('zh-CN'));
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const shortTime = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+
+function render(data) {
+  const t = data.total;
+  const today = data.byDay[data.byDay.length - 1] || { total: 0 };
+  const week = data.byDay.slice(-7).reduce((s, d) => s + (d.total || 0), 0);
+
+  const cards = `
+  <div class="cards">
+    <div class="card"><div class="k">累计 Tokens（近 ${data.days} 天）</div><div class="v">${fmt(t.total)}</div></div>
+    <div class="card"><div class="k">今日 Tokens</div><div class="v">${fmt(today.total || 0)}</div></div>
+    <div class="card"><div class="k">近 7 日 Tokens</div><div class="v">${fmt(week)}</div></div>
+    <div class="card"><div class="k">请求数 / 失败</div><div class="v">${fmt(t.requests)} <small>/ <span class="${t.errors ? 'err' : ''}">${fmt(t.errors)}</span></small></div></div>
+  </div>`;
+
+  // ---- 每日柱状图（SVG，输入 prompt 蓝 + 输出 completion 青） ----
+  const days = data.byDay.slice(-14);
+  const max = Math.max(1, ...days.map((d) => d.total));
+  const W = 720, H = 200, padL = 56, padB = 26, padT = 10;
+  const iw = (W - padL - 12) / Math.max(days.length, 1);
+  let bars = '', labels = '', grid = '';
+  for (let g = 0; g <= 4; g++) {
+    const v = Math.round(max * g / 4);
+    const y = H - padB - (H - padB - padT) * g / 4;
+    grid += `<line x1="${padL}" y1="${y}" x2="${W - 6}" y2="${y}" stroke="#ebedf0"/>` +
+            `<text x="${padL - 8}" y="${y + 4}" font-size="10" fill="#8a919f" text-anchor="end">${fmt(v)}</text>`;
+  }
+  days.forEach((d, i) => {
+    const ph = (H - padB - padT) * (d.prompt || 0) / max;
+    const ch = (H - padB - padT) * (d.completion || 0) / max;
+    const x = padL + i * iw + iw * 0.18;
+    const bw = iw * 0.64;
+    const cy = H - padB - ph, py = cy - ch;
+    if (d.total > 0) {
+      bars += `<rect x="${x}" y="${py}" width="${bw}" height="${ph + ch}" rx="2" fill="#5b7cfa"><title>${d.day}
+输入 ${fmt(d.prompt)} / 输出 ${fmt(d.completion)} / 共 ${fmt(d.total)}</title></rect>`;
+      if (ph > 0) bars += `<rect x="${x}" y="${cy}" width="${bw}" height="${ph}" fill="#2fb8a6"/>`;
+    }
+    if (days.length <= 10 || i % 2 === 0) labels += `<text x="${x + bw / 2}" y="${H - 8}" font-size="10" fill="#8a919f" text-anchor="middle">${d.day.slice(5)}</text>`;
+  });
+  const chart = `
+  <div class="panel">
+    <h2>每日 Token 用量（最近 ${days.length} 天）</h2>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${grid}${bars}${labels}</svg>
+    <div class="legend"><span><i style="background:#2fb8a6"></i>输入（prompt）</span><span><i style="background:#5b7cfa"></i>输出（completion）</span></div>
+  </div>`;
+
+  const rows = (arr, key) => {
+    const maxT = Math.max(1, ...arr.map((r) => r.total));
+    return arr.slice(0, 8).map((r) => `
+      <tr><td>${esc(r.name)}</td><td class="num">${fmt(r.requests)}</td>
+      <td class="num">${fmt(r.prompt)}</td><td class="num">${fmt(r.completion)}</td><td class="num"><b>${fmt(r.total)}</b>
+      <div class="bar ${key === 'm' ? '' : 'c'}"><i style="width:${(r.total / maxT * 100).toFixed(1)}%"></i></div></td></tr>`).join('');
+  };
+  const noData = (msg) => `<tr><td colspan="5" style="color:#8a919f">${msg}</td></tr>`;
+
+  const rank = `
+  <div class="grid2">
+    <div class="panel"><h2>模型排行</h2><table>
+      <tr><th>模型</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr>
+      ${data.byModel.length ? rows(data.byModel, 'm') : noData('暂无数据')}</table></div>
+    <div class="panel"><h2>客户端排行（Agent）</h2><table>
+      <tr><th>客户端</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr>
+      ${data.byAgent.length ? rows(data.byAgent, 'a') : noData('暂无数据')}</table></div>
+  </div>`;
+
+  const recent = `
+  <div class="panel"><h2>最近请求</h2><table>
+    <tr><th>时间</th><th>客户端</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th><th>状态</th><th class="num">耗时</th></tr>
+    ${data.recent.map((r) => `<tr><td>${shortTime(r.ts)}</td><td>${esc(r.agent)}</td><td>${esc(r.model || '—')}</td>
+      <td class="num">${fmt(r.prompt_tokens)}</td><td class="num">${fmt(r.completion_tokens)}</td>
+      <td class="num"><b>${fmt(r.total_tokens)}</b></td>
+      <td><span class="pill ${r.status < 400 ? 'ok' : 'err'}">${r.status}</span></td>
+      <td class="num">${fmt(r.latency_ms)} ms</td></tr>`).join('') || '<tr><td colspan="8" style="color:#8a919f">暂无请求</td></tr>'}
+  </table></div>`;
+
+  $('#app').innerHTML = cards + chart + rank + recent;
+  const m = data.meta || {};
+  $('#sub').textContent = `上游 ${m.target || '—'} · 已记录 ${fmt(m.recordCount)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · 每 30 秒自动刷新`;
+}
+
+function load() {
+  fetch('/api/stats?days=30').then((r) => r.json()).then(render).catch(() => {
+    $('#app').innerHTML = '<div class="off">无法连接本地代理。<br>请先双击 <code>start.cmd</code> 启动代理后再打开本页面。</div>';
+  });
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

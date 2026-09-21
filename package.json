@@ -1,0 +1,33 @@
+{
+  "name": "stepfun-usage-monitor",
+  "version": "1.0.1",
+  "description": "StepFun API Token 用量本地监控代理：零依赖、低开销、数据全本地，兼容任意 OpenAI 兼容 Agent（ZCode/Cline/Continue/Cherry Studio 等）",
+  "type": "module",
+  "main": "proxy.mjs",
+  "scripts": {
+    "start": "node proxy.mjs",
+    "stats": "node stats.mjs",
+    "mcp": "node mcp-server.mjs",
+    "test:e2e": "node test/run-e2e.mjs",
+    "test:mcp": "node test/mcp-test.mjs",
+    "test:ui": "node test/verify-ui.mjs",
+    "seed": "node test/seed-demo.mjs demo-data"
+  },
+  "keywords": [
+    "stepfun",
+    "token-usage",
+    "usage-monitor",
+    "openai-compatible",
+    "proxy",
+    "llm",
+    "mcp",
+    "zcode",
+    "cline",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "author": "Neriah-Ado"
+}

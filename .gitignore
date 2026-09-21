@@ -1,0 +1,56 @@
+# 依赖与运行时数据
+node_modules/
+data/
+demo-data/
+*.log
+
+# 测试产物（可由 test/*.mjs 重新生成）
+test/e2e-result.txt
+test/mcp-result.txt
+test/ui-result.txt
+test/mock-log.txt
+test/cleanup-report.txt
+test/preview-ok.txt
+test/gh-check.mjs
+test/gh-check.txt
+test/e2e-data/
+test/repro-data/
+
+# 操作系统
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# 本地发布/诊断脚本（含本机绝对路径，不入库）
+test/publish.mjs
+test/publish-log.txt
+test/publish2-log.txt
+test/net-diag.mjs
+test/net-diag2.mjs
+test/net-diag.txt
+test/net-diag2.txt
+test/release-notes.md
+
+# 本地发布/诊断脚本（含本机绝对路径与端口，不入库）
+test/publish2.mjs
+test/publish3.mjs
+test/prep3-log.txt
+test/publish3-log.txt
+test/release-notes.md
+test/net-diag2.mjs
+test/net-diag2.txt
+
+# 本地发布/诊断脚本（含本机绝对路径与端口，不入库）
+test/publish.mjs
+test/publish2.mjs
+test/publish3.mjs
+test/prep3.mjs
+test/publish-log.txt
+test/publish2-log.txt
+test/publish3-log.txt
+test/prep3-log.txt
+test/release-notes.md
+test/net-diag.mjs
+test/net-diag.txt
+test/net-diag2.mjs
+test/net-diag2.txt
