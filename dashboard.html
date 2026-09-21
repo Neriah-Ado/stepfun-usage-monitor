@@ -35,6 +35,21 @@ tr:last-child td{border-bottom:none}
 .off code{background:#eef1f6;padding:2px 6px;border-radius:4px}
 .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+/* 鹈鹕测试提示（v1.3.0）：位于 #app 之外，不受自动刷新重绘影响 */
+.hint-panel{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--card);border:1px dashed #c9d2e3;border-radius:10px;padding:10px 14px;margin-bottom:16px}
+.hint-panel .t{font-size:12px;color:var(--muted);flex-basis:100%}
+@media(min-width:761px){.hint-panel .t{flex-basis:auto}}
+.hint-chip{font:13px/1.5 Consolas,Menlo,"Courier New",monospace;background:#eef2ff;color:#3b4dbd;border:1px solid #dbe3ff;border-radius:8px;padding:8px 12px;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;transition:transform .06s,background .15s;min-height:40px;touch-action:manipulation}
+.hint-chip:hover{background:#e4ebff}
+.hint-chip:active{transform:scale(.97);background:#dde6ff}
+.hint-btn{background:var(--p);color:#fff;border:none;border-radius:8px;padding:9px 14px;font-size:13px;cursor:pointer;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;transition:transform .06s,background .15s;min-height:40px;touch-action:manipulation}
+.hint-btn:hover{background:#4a6ce8}
+.hint-btn:active{transform:scale(.97)}
+.hint-btn.ok{background:var(--ok)}
+.toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-10px);background:#1f2329;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:999;max-width:88vw;box-shadow:0 6px 18px rgba(0,0,0,.18);word-break:break-all}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{background:#1d7a46}
+.toast.err{background:#c0392b}
 @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -42,8 +57,16 @@ tr:last-child td{border-bottom:none}
 <div class="wrap">
   <h1>StepFun API Token 用量监控</h1>
   <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥 · 每 30 秒自动刷新</div>
+
+  <div class="hint-panel" id="hint-panel">
+    <span class="t">鹈鹕测试（Pelican Test）：用这道经典提示词检验 Agent 的绘图与代码生成能力，点击「提示」按钮或下方提示文本即可复制——</span>
+    <button class="hint-chip" id="hint-chip" type="button" title="点击复制测试提示词">画一只骑自行车的鹈鹕</button>
+    <button class="hint-btn" id="hint-btn" type="button" title="点击复制鹈鹕测试提示词">提示</button>
+  </div>
+
   <div id="app"><div class="off">正在连接本地代理…</div></div>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 'use strict';
 const $ = (s) => document.querySelector(s);
@@ -138,6 +161,60 @@ function load() {
 }
 load();
 setInterval(load, 30000);
+
+/* ==================== 鹈鹕测试：一键复制提示词（v1.3.0） ==================== */
+const PELICAN_PROMPT = '画一只骑自行车的鹈鹕';
+
+let toastTimer = null;
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.className = 'toast show ' + (type === 'err' ? 'err' : 'ok');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, 2400);
+}
+
+/** 传统回退：隐藏 textarea + execCommand（兼容非 HTTPS / 旧 WebView） */
+function copyFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:-1000px;left:-1000px;opacity:0;';
+  document.body.appendChild(ta);
+  const sel = document.getSelection();
+  const prev = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, text.length); } catch { /* 部分环境不支持 */ }
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  document.body.removeChild(ta);
+  if (prev && sel) { sel.removeAllRanges(); sel.addRange(prev); }   // 还原用户选区，不干扰页面
+  if (!ok) throw new Error('浏览器未授权剪贴板访问');
+}
+
+async function copyPelicanPrompt() {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+      await navigator.clipboard.writeText(PELICAN_PROMPT);
+    } else {
+      copyFallback(PELICAN_PROMPT);
+    }
+    showToast('已复制：' + PELICAN_PROMPT, 'ok');
+    const btn = document.getElementById('hint-btn');
+    if (btn) {
+      btn.classList.add('ok');
+      clearTimeout(copyPelicanPrompt._btnTimer);
+      copyPelicanPrompt._btnTimer = setTimeout(() => btn.classList.remove('ok'), 2400);
+    }
+  } catch (e) {
+    showToast('复制失败：' + ((e && e.message) || '请手动选择文本复制'), 'err');
+  }
+}
+
+document.getElementById('hint-btn').addEventListener('click', copyPelicanPrompt);
+document.getElementById('hint-chip').addEventListener('click', copyPelicanPrompt);
 </script>
 </body>
 </html>

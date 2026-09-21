@@ -53,7 +53,7 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.1.0';
+const VERSION = '1.3.0';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
