@@ -58,7 +58,7 @@ function render(data) {
 
   const cards = `
   <div class="cards">
-    <div class="card"><div class="k">累计 Tokens（近 ${data.days} 天）</div><div class="v">${fmt(t.total)}</div></div>
+    <div class="card"><div class="k">累计 Tokens（全量）</div><div class="v">${fmt(t.total)}</div></div>
     <div class="card"><div class="k">今日 Tokens</div><div class="v">${fmt(today.total || 0)}</div></div>
     <div class="card"><div class="k">近 7 日 Tokens</div><div class="v">${fmt(week)}</div></div>
     <div class="card"><div class="k">请求数 / 失败</div><div class="v">${fmt(t.requests)} <small>/ <span class="${t.errors ? 'err' : ''}">${fmt(t.errors)}</span></small></div></div>
@@ -125,9 +125,10 @@ function render(data) {
       <td class="num">${fmt(r.latency_ms)} ms</td></tr>`).join('') || '<tr><td colspan="8" style="color:#8a919f">暂无请求</td></tr>'}
   </table></div>`;
 
-  $('#app').innerHTML = cards + chart + rank + recent;
   const m = data.meta || {};
-  $('#sub').textContent = `上游 ${m.target || '—'} · 已记录 ${fmt(m.recordCount)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · 每 30 秒自动刷新`;
+  $('#app').innerHTML = cards + (m.loading ? '<div class="panel" style="color:#8a919f">正在后台加载历史数据…（服务已可用，统计会随之补齐）</div>' : '') + chart + rank + recent;
+  const perf = `v${m.version || '—'} · 内存 ${m.memoryMB || 0}MB · 在用连接 ${m.sockets || 0} · 运行 ${m.uptimeSec || 0}s`;
+  $('#sub').textContent = `上游 ${m.target || '—'} · 请求 ${fmt(m.requests)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · ${perf} · 每 30 秒自动刷新`;
 }
 
 function load() {

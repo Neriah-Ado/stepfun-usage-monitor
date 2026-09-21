@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.MOCK_PORT || 18791);
+const DELAY = Number(process.env.MOCK_DELAY || 0);   // 模拟上游推理延迟（压测用）
 const logLines = [];
+const noLog = process.env.MOCK_NOLOG === '1';        // 压测时关闭日志写入
 
 http.createServer((req, res) => {
   const chunks = [];
@@ -20,8 +22,10 @@ http.createServer((req, res) => {
     let obj = {};
     try { obj = JSON.parse(body); } catch { /* ignore */ }
     const model = obj.model || 'step-2-16k';
-    logLines.push(`${new Date().toISOString()} ${req.method} ${req.url} model=${model} stream=${!!obj.stream} stream_options=${JSON.stringify(obj.stream_options || null)}`);
-    fs.writeFileSync(path.join(__dirname, 'mock-log.txt'), logLines.join('\n') + '\n');
+    if (!noLog) {
+      logLines.push(`${new Date().toISOString()} ${req.method} ${req.url} model=${model} stream=${!!obj.stream} stream_options=${JSON.stringify(obj.stream_options || null)}`);
+      fs.writeFileSync(path.join(__dirname, 'mock-log.txt'), logLines.join('\n') + '\n');
+    }
 
     if (req.url.includes('chat/completions') && obj.stream === true) {
       // 模拟"上游不认 stream_options"的场景，用于验证代理的自动回退逻辑
@@ -50,12 +54,15 @@ http.createServer((req, res) => {
       res.writeHead(404, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ error: { message: 'not found' } }));
     } else {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        id: 'mock', object: 'chat.completion', model,
-        choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
-        usage: { prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 },
-      }));
+      const send = () => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({
+          id: 'mock', object: 'chat.completion', model,
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 120, completion_tokens: 80, total_tokens: 200 },
+        }));
+      };
+      if (DELAY > 0) setTimeout(send, DELAY); else send();
     }
   });
 }).listen(PORT, '127.0.0.1', () => console.log(`mock upstream on 127.0.0.1:${PORT}`));

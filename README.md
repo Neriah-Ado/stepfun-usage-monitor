@@ -1,25 +1,63 @@
 # stepfun-usage-monitor — StepFun API Token 用量本地监控插件
 
-统计 StepFun API（阶跃星辰，OpenAI 兼容接口）的 Token 用量。**零 npm 依赖、常驻内存 < 30MB、所有数据仅存本地**，通过「本地反向代理」方式接入，因此天然兼容几乎所有 Agent / 客户端。
+统计 StepFun API（阶跃星辰，OpenAI 兼容接口）的 Token 用量。**零 npm 依赖、常驻内存通常 < 60MB、所有数据仅存本地**，通过「本地反向代理」方式接入，因此天然兼容几乎所有 Agent / 客户端。
 
 ## 架构
 
 ```
-┌─────────────┐   Base URL 指向本地    ┌──────────────────────┐   转发(透传)   ┌──────────────────┐
-│  ZCode      │ ────────────────────▶ │  本地代理 proxy.mjs   │ ────────────▶ │ api.stepfun.com  │
-│  Cline      │  127.0.0.1:8787/v1/…  │  · 流式/非流式解析usage │  原样返回      │                  │
-│  Continue … │ ◀──────────────────── │  · 追加写 usage.jsonl  │ ◀──────────── │                  │
-└─────────────┘                       │  · 仪表盘 + 统计API    │               └──────────────────┘
-                                      └──────────┬───────────┘
-                                                 │ 读取(只读)
-                                    ┌────────────┴────────────┐
-                                    │ data/usage.jsonl (本地)  │◀── mcp-server.mjs（Agent 对话查询）
-                                    └─────────────────────────┘
+┌─────────────┐   Base URL 指向本地    ┌────────────────────────┐   转发(透传)   ┌──────────────────┐
+│  ZCode      │ ────────────────────▶ │  本地代理 proxy.mjs     │ ────────────▶ │ api.stepfun.com  │
+│  Cline      │  127.0.0.1:8787/v1/…  │  · 流式/非流式解析usage  │  原样返回      │                  │
+│  Continue … │ ◀──────────────────── │  · 增量聚合 + 环形缓冲   │ ◀──────────── │                  │
+└─────────────┘                       │  · 仪表盘 + 统计API      │               └──────────────────┘
+                                      └───────┬─────────────────┘
+                    ┌─────────────────────────┼─────────────────────────┐
+                    │ data/usage.jsonl (明细)  │ data/aggregate.json(快照) │
+                    └─────────────────────────┴─────────────────────────┘
+                                 │ 读取（只读）
+                    mcp-server.mjs（Agent 对话查询）·  stats.mjs（终端报表）
 ```
 
 - **兼容性**：任何支持自定义 OpenAI 兼容 Base URL 的客户端均可接入（ZCode、Cline、Roo Code、Continue、Cursor、Cherry Studio、ChatBox、LobeChat、Open WebUI、Dify、LangChain/LiteLLM、openai-python/node SDK 等）；支持 MCP 的 Agent（ZCode 等）还可通过内置 MCP Server 直接对话查询。
-- **低开销**：Node 单进程、流式响应逐字节直通（旁路扫描 usage，不缓冲不落盘中间数据），无数据库、无 Electron、无后台轮询。
-- **全本地**：用量逐条追加写入 `data/usage.jsonl`（每行一条 JSON，崩溃安全）；不采集、不存储 API 密钥，Authorization 头仅透传。
+- **低开销**：Node 单进程、流式响应逐块直通（旁路扫描 usage，不缓冲不落盘中间数据），无数据库、无 Electron、无后台轮询。
+- **全本地**：用量逐条追加写入 `data/usage.jsonl`（每行一条 JSON，崩溃安全）；聚合快照 `data/aggregate.json` 仅含统计数字，不含密钥与请求正文。
+
+## 性能（v1.1.0 第一轮优化实测）
+
+基准环境：Windows / Node v22.12.0 / 20 万条历史（38.4 MB）/ 本机回环 mock 上游；对照组为 v1.0.1。复现命令：`npm run bench`。
+
+| 指标 | v1.0.1 | v1.1.0 | 变化 |
+|---|---|---|---|
+| 冷启动可服务（/healthz 可响应） | 447 ms | **252 ms** | ↓44% |
+| 全量历史就绪 | 447 ms | **379 ms** | ↓15% |
+| 全量历史就绪（命中快照） | — | **227 ms** | ↓49% |
+| 加载 20 万条后常驻内存 | 204 MB | **56 MB** | ↓73% |
+| `/api/stats` 平均延迟 | 73.65 ms | **0.45 ms** | ↓99%（163×） |
+| `/api/stats` 50 并发总耗时 | 3665 ms | **15 ms** | ↓99.6% |
+| 300 并发吞吐 | 1277 req/s | **1456 req/s** | ↑14% |
+| 300 并发 p95 延迟 | 224 ms | **199 ms** | ↓11% |
+| 并发压测后内存 | 142 MB | **66 MB** | ↓54% |
+
+优化手段（对应三类目标）：
+
+**冷启动**
+1. 先 `listen` 再后台加载历史——旧版必须同步解析完全部日志才能接受连接，新版启动即可服务，统计随后补齐。
+2. 聚合快照 `aggregate.json`（含已消费的字节偏移）：重启时只读快照 + 回放尾部增量，不再全量重放；日志被截断/清空时自动回退全量重建。
+3. **worker 线程并行回放**：按行边界把日志切成 N 段（默认 `min(CPU-1, 4)` 线程）并行聚合再合并；并行与顺序回放结果经逐字段校验完全一致（`npm run test:parity`），任一线程失败自动回退单线程。
+4. 回放按行切分并定期让出事件循环，加载期间在途请求延迟不受影响；日键记忆化避免反复构造 `Date`。
+
+**高内存**
+1. 增量聚合（`Map` 桶）替代「全量记录数组」——内存从 O(记录数) 降为 O(桶数)。
+2. 最近请求改用**定长环形缓冲**（默认 200 条），并消除 `Array.shift` 等 O(n) 操作。
+3. 超过 `MAX_INJECT_BYTES`（默认 1MB）的请求体直接流式透传，不进入内存做注入/解析。
+4. SSE 扫描缓冲上限 8KB；日志写入使用定长背压队列；RSS 超过软阈值自动裁剪缓冲并落盘快照。
+
+**多任务并行**
+1. `/api/stats` 直接读内存聚合（O(桶数)），旧版每次都要遍历全部历史（20 万条 ≈ 74 ms CPU 占用，并发轮询时相互争抢事件循环）。
+2. 上游 keepAlive 连接池 + `maxSockets` 限流，避免并发下 socket 与文件描述符失控。
+3. 仅在疑似包含 `usage` 的 SSE 帧上执行 `JSON.parse`（长流式对话可跳过 99% 以上的解析）。
+4. 非流式请求跳过请求体 JSON 解析（模型名优先从响应体/SSE 帧获取）；非 JSON 响应零拷贝直通。
+
 
 ## 快速开始
 
@@ -77,6 +115,13 @@
 | `DATA_DIR` | `./data` | 本地数据目录 |
 | `STEPFUN_API_KEY` | 无 | 设置后：客户端未带 Authorization 时自动注入（客户端可不配 Key） |
 | `DISABLE_USAGE_INJECT` | 未设置 | 设为 `1` 关闭流式请求的 `stream_options.include_usage` 自动注入 |
+| `SNAPSHOT_MS` | `20000` | 聚合快照落盘间隔（ms）；另有 ≥3s 节流落盘与加载完成即落盘 |
+| `DISABLE_SNAPSHOT` | 未设置 | 设为 `1` 完全关闭快照（每次启动全量回放） |
+| `REPLAY_WORKERS` | `min(CPU-1, 4)` | 并行回放线程数；`0`=单线程。数据 < 4MB 时自动走单线程 |
+| `RECENT_MAX` | `200` | 最近请求环形缓冲条数（内存上限） |
+| `MAX_SOCKETS` | `256` | 上游 keepAlive 连接池并发上限 |
+| `MAX_INJECT_BYTES` | `1048576` | 请求体超过该字节数则跳过注入/解析，直接流式透传 |
+| `MEMORY_SOFT_LIMIT_MB` | `384` | RSS 软阈值，超过则裁剪最近请求缓冲并落盘快照 |
 
 > 说明：StepFun 遵循 OpenAI 规范，流式响应默认**不返回** usage，除非请求带 `stream_options.include_usage=true`。代理会自动为流式请求注入该字段（不产生任何计费影响）；若某上游不认该字段返回 400，代理会自动回退重发原始请求。
 
@@ -89,34 +134,40 @@
   ```
 
 - **不记录**请求/响应正文、Authorization、API Key；仅记录时间、客户端、模型、token 数、状态码、耗时。
+- `data/aggregate.json`：聚合快照（仅统计数字 + 已消费字节偏移），用于加速冷启动；删除后会自动全量重建。
 - 备份：直接复制 `data/` 目录即可。清空：`POST http://127.0.0.1:8787/api/clear`。
 
 ## 本地接口一览
 
 | 接口 | 说明 |
 |---|---|
-| `GET /` | 仪表盘（每日柱状图、模型/客户端排行、最近请求） |
-| `GET /api/stats?days=30` | JSON 统计聚合 |
-| `GET /api/logs?days=7&limit=500` | 原始记录 |
-| `GET /healthz` | 健康检查 |
-| `POST /api/clear` | 清空本地数据 |
+| `GET /` | 仪表盘（每日柱状图、模型/客户端排行、最近请求、内存/连接数） |
+| `GET /api/stats?days=30` | JSON 统计聚合（读内存聚合，O(桶数)） |
+| `GET /api/logs?limit=500` | 最近请求（环形缓冲，最多 `RECENT_MAX` 条） |
+| `GET /healthz` | 健康检查（含 `loading` 标记，可用于等待历史加载完成） |
+| `POST /api/snapshot` | 立即 flush 日志并落盘聚合快照 |
+| `POST /api/clear` | 清空本地数据（明细 + 快照 + 内存聚合） |
 
 ## 文件结构
 
 ```
 stepfun-usage-monitor/
-├─ proxy.mjs           核心：本地反代 + usage 解析 + 本地存储 + 仪表盘服务（零依赖）
+├─ proxy.mjs           核心：本地反代 + usage 解析 + 增量聚合 + 快照 + 仪表盘服务（零依赖）
+├─ lib/replay-worker.mjs  历史并行回放 worker（worker_threads）
 ├─ dashboard.html      仪表盘页面（纯本地，无任何 CDN 外链）
 ├─ mcp-server.mjs      MCP Server：Agent 对话式查询用量
 ├─ stats.mjs           终端报表：node stats.mjs [天数]
 ├─ start.cmd           一键启动（Windows 双击即可）
-├─ data/usage.jsonl    真实用量数据（首次运行自动创建）
-├─ demo-data/          演示数据（仅用于预览仪表盘效果，可随时删除）
-└─ test/               测试与验证脚本
+├─ data/usage.jsonl    用量明细（追加写，首次运行自动创建）
+├─ data/aggregate.json 聚合快照（自动生成，可删除）
+├─ demo-data/          演示数据（`npm run seed` 生成，仅用于预览仪表盘，可随时删除）
+└─ test/               测试 / 基准脚本
    ├─ run-e2e.mjs          端到端测试（mock 上游 + 流式/非流式/回退用例）
-   ├─ mock-upstream.mjs    模拟 StepFun 上游
+   ├─ mock-upstream.mjs    模拟 StepFun 上游（支持 MOCK_DELAY 模拟推理延迟）
    ├─ mcp-test.mjs         MCP 协议一致性测试
    ├─ verify-ui.mjs        仪表盘 / CLI 报表校验
+   ├─ replay-parity.mjs    并行回放 vs 顺序回放一致性校验
+   ├─ bench.mjs            性能基准（冷启动 / 内存 / 并发，输出 bench-result.txt）
    ├─ seed-demo.mjs        生成演示数据
    └─ cleanup.mjs          清理测试残留
 ```
@@ -127,6 +178,8 @@ stepfun-usage-monitor/
 node test/run-e2e.mjs                 :: 端到端：非流式/流式 usage 解析、stream_options 注入与回退、密钥不入库
 node test/mcp-test.mjs                :: MCP：initialize / tools/list / tools/call / 未知方法错误码
 node test/verify-ui.mjs               :: 仪表盘可访问性与 CLI 报表格式
+node test/replay-parity.mjs           :: 并行回放 vs 顺序回放：聚合结果逐字段一致性
+node test/bench.mjs                   :: 性能基准（生成 20 万条数据，输出 test/bench-result.txt）
 node test/seed-demo.mjs demo-data     :: 重新生成演示数据
 ```
 
@@ -141,4 +194,7 @@ set PORT=8787 && set DATA_DIR=demo-data && node proxy.mjs
 - **端口被占用**：设置 `PORT=8788` 后重启，客户端 Base URL 同步修改。
 - **流式对话没统计到 tokens**：确认未设置 `DISABLE_USAGE_INJECT=1`；个别极老客户端自行剥离了 `stream_options`，可在客户端设置里开启「统计用量/usage」类选项。
 - **想同时统计其他服务商**：另起一个实例，例如 `set TARGET_URL=https://api.moonshot.cn && set PORT=8788 && node proxy.mjs`，数据目录可用 `DATA_DIR` 分开。
-- **性能**：实测单请求额外开销 < 1ms（不含网络），内存占用稳定在 30MB 以内（20 万条记录上限自动裁剪）。
+- **同一数据目录不要多实例同时写**：快照的字节偏移假设单写者；多实例请用不同 `DATA_DIR`。
+- **强制退出（直接关闭窗口）会丢最后几秒明细**：快照每 ≥3s 节流落盘，重启后仅需回放极短尾部；正常关闭（Ctrl+C）会立即落盘。
+- **历史很大时想更快**：调大 `REPLAY_WORKERS`（默认 4）；或保留 `aggregate.json` 让下次启动走快照路径。
+- **性能**：20 万条历史下常驻内存约 56MB、`/api/stats` 约 0.45ms、300 并发吞吐约 1456 req/s；单请求额外开销 < 1ms（不含网络）。详见 `npm run bench` 输出。
