@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * stepfun-usage-monitor — StepFun API Token 用量本地监控代理
+ * v1.5.0 — GitHub URL 直载（npx）+ 仪表盘三种嵌入布局（完整页/小窗/底栏）+ 统一数据目录解析
  * v1.4.0 — 交互性能优化 + 轻量 / 进阶 / 极致 3 档性能模式
  *
  * 架构：Agent → http://127.0.0.1:<PORT>/v1/... → 本地代理 → https://api.stepfun.com/v1/...
@@ -28,13 +29,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
+import { resolveDataDir } from './lib/paths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /* ==================== 配置 ==================== */
 const PORT = Number(process.env.PORT || 8787);
 const TARGET = new URL(process.env.TARGET_URL || 'https://api.stepfun.com');
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_DIR = resolveDataDir(__dirname);   // v1.5.0：npx 直载时落 ~/.stepfun-usage-monitor/，手动安装沿用 data/
 const LOG_FILE = path.join(DATA_DIR, 'usage.jsonl');
 const SNAP_FILE = path.join(DATA_DIR, 'aggregate.json');
 const DASHBOARD_FILE = path.join(__dirname, 'dashboard.html');
@@ -55,7 +57,7 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -590,7 +592,8 @@ const server = http.createServer(async (req, res) => {
   const url = req.url;
   const start = Date.now();
 
-  if (url === '/' || url === '/dashboard') {
+  const pn = url.split('?')[0].split('#')[0];          // v1.5.0：按 pathname 匹配，/?layout=window 等查询串不影响本地路由
+  if (pn === '/' || pn === '/dashboard') {
     const buf = getDashboard();
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(buf);

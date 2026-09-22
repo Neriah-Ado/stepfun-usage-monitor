@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>StepFun Token 用量监控</title>
+<script>/* v1.5.0：布局模式先于样式生效（?layout=window|panel|full），避免嵌入模式闪现完整页（FOUC） */
+(function(){try{var m=new URLSearchParams(location.search).get('layout');if(m==='window'||m==='panel')document.documentElement.dataset.layout=m;}catch(e){}})();
+</script>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--muted:#8a919f;--line:#ebedf0;--p:#5b7cfa;--c:#2fb8a6;--warn:#e2574c;--ok:#2fb86a}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -117,6 +120,29 @@ html[data-perf="lite"] .toast{transform:translateX(-50%)}
 html[data-perf="lite"] .toast.show{transform:translateX(-50%)}
 
 @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
+
+/* ---------------- v1.5.0 嵌入布局：小窗 window / 底部横条 panel ---------------- */
+html:not([data-layout]) #btn-open,html[data-layout="full"] #btn-open{display:none}
+html:not([data-layout]) #lnk-full,html[data-layout="full"] #lnk-full{display:none}
+html[data-layout="window"] #lnk-window{display:none}
+html[data-layout="panel"] #lnk-panel{display:none}
+html[data-layout="window"] body,html[data-layout="panel"] body{padding:10px 12px}
+html[data-layout="window"] h1,html[data-layout="panel"] h1{font-size:15px}
+html[data-layout="window"] .sub,html[data-layout="panel"] .sub{margin:2px 0 10px;font-size:11px}
+html[data-layout="window"] .perf,html[data-layout="panel"] .perf{flex-wrap:wrap;gap:6px}
+html[data-layout="window"] #perf-desc{display:none}
+html[data-layout="panel"] #perf-bar{display:none}   /* 底栏只留 KPI 横条，性能档位沿用已保存设置 */
+html[data-layout="window"] .cards{gap:8px;margin-bottom:12px}
+html[data-layout="window"] .card{padding:8px 10px}
+html[data-layout="window"] .card .v{font-size:18px}
+html[data-layout="window"] #p-models,html[data-layout="window"] #p-agents,
+html[data-layout="window"] #p-recent,html[data-layout="window"] #hint-panel{display:none!important}
+html[data-layout="panel"] #app > :not(.cards){display:none!important}
+html[data-layout="panel"] .cards{gap:6px;margin-bottom:0}
+html[data-layout="panel"] .card{padding:4px 8px;border-radius:8px}
+html[data-layout="panel"] .card .k{font-size:10px}
+html[data-layout="panel"] .card .v{font-size:14px;margin-top:0}
+html[data-layout="panel"] #toast{bottom:8px}
 </style>
 </head>
 <body>
@@ -134,6 +160,10 @@ html[data-perf="lite"] .toast.show{transform:translateX(-50%)}
     <span class="desc" id="perf-desc"></span>
     <span class="sync" id="sync"><span class="spin"></span>同步中…</span>
     <button class="btn-ghost" id="btn-refresh" type="button" title="立即刷新一次">刷新</button>
+    <a class="btn-ghost" id="btn-open" href="/" target="_blank" rel="noopener" title="在独立浏览器页面打开完整仪表盘">↗ 浏览器页</a>
+    <a class="btn-ghost" id="lnk-full" href="/" title="完整页（默认布局）">完整页</a>
+    <a class="btn-ghost" id="lnk-window" href="/?layout=window" title="小窗模式：紧凑布局，适合悬浮窗 / 分屏">小窗</a>
+    <a class="btn-ghost" id="lnk-panel" href="/?layout=panel" title="底部横条模式：超紧凑 KPI 横条，适合贴边停靠">底栏</a>
   </div>
 
   <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥</div>
@@ -166,6 +196,7 @@ const shortTime = (ts) => { const d = new Date(ts); const p = (n) => String(n).p
 const nowHMS = () => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 
 /* ---------------- 性能档位定义 ---------------- */
+const LAYOUT = document.documentElement.dataset.layout || 'full';   // v1.5.0：full | window | panel（head 内联脚本依 ?layout= 写入）
 const PERF_KEY = 'sfm:perf';
 const MODES = {
   lite: {
@@ -206,10 +237,10 @@ const SHELL = `
   <div class="legend" id="chart-legend"><span><i style="background:#2fb8a6"></i>输入（prompt）</span><span><i style="background:#5b7cfa"></i>输出（completion）</span></div>
 </div>
 <div class="grid2">
-  <div class="panel"><h2>模型排行</h2><table>
+  <div class="panel" id="p-models"><h2>模型排行</h2><table>
     <thead><tr><th>模型</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
     <tbody id="tb-model"></tbody></table></div>
-  <div class="panel"><h2>客户端排行（Agent）</h2><table>
+  <div class="panel" id="p-agents"><h2>客户端排行（Agent）</h2><table>
     <thead><tr><th>客户端</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
     <tbody id="tb-agent"></tbody></table></div>
 </div>
@@ -432,7 +463,8 @@ async function load(force) {
   inflight = true;
   beginLoad();
   const c = cfg();
-  const url = `/api/stats?days=${c.days}` + (c.lite ? '&lite=1' : '');
+  // 底部横条布局只需 KPI：一律走 lite 精简载荷（与「轻量」档同一通道）
+  const url = `/api/stats?days=${c.days}` + ((c.lite || LAYOUT === 'panel') ? '&lite=1' : '');
   try {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('HTTP ' + res.status);

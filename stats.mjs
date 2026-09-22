@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
  * CLI 统计：node stats.mjs [天数，默认7]
- * 直接读取本地 data/usage.jsonl，输出终端汇总表
+ * 直接读取本地 usage.jsonl，输出终端汇总表。
+ * 数据目录与 proxy.mjs / mcp-server.mjs 一致（lib/paths.mjs，v1.5.0）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveDataDir } from './lib/paths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const days = Math.max(parseInt(process.argv[2] || '7', 10) || 7, 1);
-const file = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'usage.jsonl') : path.join(__dirname, 'data', 'usage.jsonl');
+const file = path.join(resolveDataDir(__dirname), 'usage.jsonl');
 
 const records = [];
 try {

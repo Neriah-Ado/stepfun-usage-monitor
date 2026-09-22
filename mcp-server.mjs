@@ -3,27 +3,30 @@
  * stepfun-usage-monitor MCP Server（stdio 传输，零依赖）
  *
  * 让 ZCode / Claude Code / Cline 等支持 MCP 的 Agent 直接对话查询本地 Token 用量。
- * 数据源与 proxy.mjs 相同（data/usage.jsonl），只读访问。
+ * 数据源与 proxy.mjs 相同（usage.jsonl），只读访问；数据目录解析规则见 lib/paths.mjs（v1.5.0 三入口统一）。
  *
- * ZCode / Claude Code 配置示例（mcp.json）：
+ * ZCode / Claude Code 配置示例（推荐 npx 直载，无需 clone；v1.5.0 起）：
  * {
  *   "mcpServers": {
  *     "stepfun-usage": {
- *       "command": "node",
- *       "args": ["<本文件绝对路径>\\mcp-server.mjs"]
+ *       "command": "npx",
+ *       "args": ["-y", "github:Neriah-Ado/stepfun-usage-monitor", "--mcp"]
  *     }
  *   }
  * }
+ * 手动安装等价写法："command": "node", "args": ["<本文件绝对路径>\\mcp-server.mjs"]
  *
- * 环境变量：DATA_DIR — 指定数据目录（默认为本文件所在目录下的 data/）
+ * 环境变量：DATA_DIR — 指定数据目录（默认按 lib/paths.mjs 解析：
+ *          DATA_DIR > ~/.stepfun-usage-monitor/ > 包内 data/（历史数据兼容））
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { resolveDataDir } from './lib/paths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DATA_DIR = resolveDataDir(__dirname);   // v1.5.0：npx 直载时落 ~/.stepfun-usage-monitor/，与 proxy.mjs 完全一致
 const LOG_FILE = path.join(DATA_DIR, 'usage.jsonl');
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -90,7 +93,7 @@ function handleMessage(msg) {
     return {
       protocolVersion: params && params.protocolVersion ? params.protocolVersion : '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'stepfun-usage-monitor', version: '1.0.0' },
+      serverInfo: { name: 'stepfun-usage-monitor', version: '1.5.0' },
     };
   }
   if (method === 'tools/list') return { tools: TOOLS };

@@ -1,5 +1,22 @@
 # 更新日志
 
+## v1.5.0（GitHub URL 直载 + 三种浏览布局 + VS Code 系扩展）
+
+### 新增
+- **GitHub URL 直载**：`npx -y github:Neriah-Ado/stepfun-usage-monitor` 免 clone 免安装直接拉起；`bin/cli.mjs` 统一入口支持默认代理模式与 `--mcp` 模式，及 `--port` / `--data-dir` / `--version` / `--help`。
+- **统一数据目录解析**（`lib/paths.mjs`，proxy / mcp-server / stats 三入口一致）：`DATA_DIR` > `~/.stepfun-usage-monitor/` > 包内 `data/`（历史数据原地兼容）。npx 运行时数据不再落入 npm 缓存目录。
+- **仪表盘三种浏览布局**：`?layout=full|window|panel`——完整页 / 小窗（KPI+图表）/ 底部横条（超紧凑 KPI，走 lite 精简载荷，整页高约 220px）；head 内联脚本先于样式写入 `data-layout`，杜绝嵌入模式 FOUC；三种布局右上角一键互切，嵌入模式提供「↗ 浏览器页」独立页入口。
+- **小窗 / 底栏启动器**：`open-window.cmd`（Chrome/Edge `--app` 无边框窗口）、`open-panel.cmd`。
+- **VS Code 系 IDE 扩展**（`ide-extension/`）：底边栏 Webview 面板 / 小窗编辑器 / 独立浏览器三命令 + 状态栏今日 tokens + 代理未运行自动 npx 拉起；附零依赖 VSIX 打包器（`test/build-vsix.mjs`，ZIP+CRC32+自校验），产物 `ide-extension/dist/stepfun-monitor-1.5.0.vsix`。
+- **ZCode 原生命令**：`zcode/command-sfm.md` 提供 `/sfm` 对话式查询指令。
+- 测试：`test/v15-check.mjs`（40 项静态+运行时）、`test/npm-pack-check.mjs`（npm pack → tarball 安装 → bin 双模式真实运行，15 项）；browser-smoke 新增三种布局 17 项真机断言（总 51 项）。
+
+### 修复
+- `/?layout=window`、`/?layout=panel` 等带查询串的根路径此前会穿透到上游（路由仅匹配 `url === '/'`），现按 pathname 匹配本地路由。
+
+### 文档
+- README 安装章节重写为三轨：方式一 GitHub URL 直载（含 ZCode / Claude Code / Cline / Cursor 的 MCP 配置片段）、方式二 VSIX 扩展、方式三手动安装（保留）；新增「仪表盘的三种浏览方式」章节。
+
 ## v1.4.0（交互性能优化 + 轻量 / 进阶 / 极致 3 档性能模式）
 
 面向**点击响应延迟**、**交互性能**与**可配置的性能占用**做专项优化。代理端与数据格式保持向后兼容。

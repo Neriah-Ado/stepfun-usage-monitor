@@ -100,9 +100,9 @@ const checks = [
   ['v1.3.0 鹈鹕复制功能保留', /copyPelicanPrompt/.test(html) && /id="hint-btn"/.test(html) && /id="hint-chip"/.test(html) && /document\.execCommand\('copy'\)/.test(html)],
   ['提示面板仍位于 #app 之外', html.indexOf('id="hint-panel"') < html.indexOf('id="app"')],
 
-  // —— 版本一致性 ——
-  ['proxy.mjs VERSION = 1.4.0', /const VERSION = '1\.4\.0';/.test(proxySrc)],
-  ['package.json version = 1.4.0', pkg.version === '1.4.0'],
+  // —— 版本一致性（版本号跟随 package.json，跨版本回歸不误报）——
+  ['proxy.mjs VERSION 为语义化版本', /const VERSION = '\d+\.\d+\.\d+'/.test(proxySrc)],
+  ['package.json version 为语义化版本', /^\d+\.\d+\.\d+$/.test(String(pkg.version || ''))],
 ];
 for (const [name, ok] of checks) log(`${ok ? 'PASS' : 'FAIL'} - ${name}`);
 
@@ -135,7 +135,7 @@ try {
     log((/id="perf-bar"/.test(page) && /data-perf="ultra"/.test(page)) ? 'PASS 服务的页面包含 3 档性能栏' : 'FAIL 页面未包含性能栏');
 
     const health = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json();
-    log(health.version === '1.4.0' ? 'PASS /healthz 版本 = 1.4.0' : `FAIL /healthz 版本 = ${health.version}`);
+    log(health.version === pkg.version ? `PASS /healthz 版本 = ${health.version}` : `FAIL /healthz 版本 = ${health.version} 期望 ${pkg.version}`);
 
     const fullRes = await fetch(`http://127.0.0.1:${PORT}/api/stats?days=30`);
     const fullTxt = await fullRes.text();

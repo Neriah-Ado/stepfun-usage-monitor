@@ -1,0 +1,114 @@
+{
+  "name": "stepfun-monitor",
+  "displayName": "StepFun Usage Monitor",
+  "description": "在 IDE 内浏览 StepFun API Token 用量监控仪表盘：底边栏面板 / 小窗 / 独立浏览器页面三种方式",
+  "version": "1.5.0",
+  "publisher": "neriah-ado",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "stepfun",
+    "token",
+    "usage",
+    "monitor",
+    "mcp",
+    "llm"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onView:stepfunMonitor.panel",
+    "onCommand:stepfunMonitor.openWindow",
+    "onCommand:stepfunMonitor.openInBrowser",
+    "onCommand:stepfunMonitor.openPanel",
+    "onCommand:stepfunMonitor.startServer"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "stepfunMonitor.openPanel",
+        "title": "StepFun 监控：显示底边栏面板",
+        "icon": "$(layout-panel-bottom)"
+      },
+      {
+        "command": "stepfunMonitor.openWindow",
+        "title": "StepFun 监控：小窗打开",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "stepfunMonitor.openInBrowser",
+        "title": "StepFun 监控：在浏览器打开完整仪表盘",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "stepfunMonitor.startServer",
+        "title": "StepFun 监控：启动本地代理（npx 从 GitHub 拉起）"
+      }
+    ],
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "stepfun-monitor",
+          "title": "StepFun 监控",
+          "icon": "media/chart.svg"
+        }
+      ]
+    },
+    "views": {
+      "stepfun-monitor": [
+        {
+          "type": "webview",
+          "id": "stepfunMonitor.panel",
+          "name": "Token 用量"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "stepfunMonitor.openWindow",
+          "when": "view == stepfunMonitor.panel",
+          "group": "navigation"
+        },
+        {
+          "command": "stepfunMonitor.openInBrowser",
+          "when": "view == stepfunMonitor.panel",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "StepFun Usage Monitor",
+      "properties": {
+        "stepfunMonitor.url": {
+          "type": "string",
+          "default": "http://127.0.0.1:8787",
+          "description": "监控代理地址（本地反向代理，见 stepfun-usage-monitor 项目）"
+        },
+        "stepfunMonitor.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开视图时代理未运行，则自动通过 npx 从 GitHub 拉起（需本机安装 Node.js 与 git）"
+        },
+        "stepfunMonitor.startCommand": {
+          "type": "string",
+          "default": "npx",
+          "description": "代理启动命令"
+        },
+        "stepfunMonitor.startArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["-y", "github:Neriah-Ado/stepfun-usage-monitor"],
+          "description": "代理启动参数（默认从 GitHub URL 直载最新版）"
+        }
+      }
+    }
+  }
+}
