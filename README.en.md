@@ -2,7 +2,7 @@
 
 Tracks token usage for the StepFun API (OpenAI-compatible). **Zero npm dependencies, typically < 60 MB resident memory, all data stays local.** It hooks in as a local reverse proxy, so it works with virtually any agent/client out of the box.
 
-**v1.5.9**: **official ZCode plugin format** — the repo is now a ZCode plugin marketplace (`marketplace.json` + standard `plugins/` layout) with an **agent-page docked popup** (ultra-compact strip auto-docked at the bottom of the screen) and a "Full Display" button that raises the standalone browser dashboard. **Multi-provider support** (v1.5.5) — one proxy instance can switch between StepFun, Zhipu GLM, DeepSeek, Kimi, MiniMax, Qwen, Yi and other OpenAI-compatible APIs with a single click (custom gateways supported too), with usage broken down per provider. Full bilingual release notes live in [`docs/releases/`](docs/releases/).
+**v1.5.10**: **self-contained after ZCode plugin install** — `plugins/stepfun-usage-monitor/runtime/` bundles every runtime file (byte-identical to the repo root), fixing "the MCP server fails to start after install → `/sfm` does nothing"; v1.5.9 brought the **official ZCode plugin format** — the repo doubles as a ZCode plugin marketplace (`marketplace.json` + standard `plugins/` layout) with an **agent-page docked popup** (ultra-compact strip auto-docked at the bottom of the screen) and a "Full Display" button that raises the standalone browser dashboard. **Multi-provider support** (v1.5.5) — one proxy instance can switch between StepFun, Zhipu GLM, DeepSeek, Kimi, MiniMax, Qwen, Yi and other OpenAI-compatible APIs with a single click (custom gateways supported too), with usage broken down per provider. Full bilingual release notes live in [`docs/releases/`](docs/releases/).
 
 > **[中文说明](README.md)** · This document is the English version.
 
@@ -77,21 +77,27 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 - The first npx run downloads and caches from GitHub; afterwards startup is instant. The packaged files and the unified `bin/cli.mjs` entry are declared in `package.json`'s `bin` / `files` fields.
 - **Data directory decoupled from the npm cache**: npx runs store data under `~/.stepfun-usage-monitor/` (on Windows, `C:\Users\<you>\.stepfun-usage-monitor\`), so clearing the npm cache never loses history. Resolution order: `DATA_DIR` env var > `~/.stepfun-usage-monitor/` (used if present) > in-package `data/` (legacy data stays in place). `providers.json` lives in the same directory.
 
-**ZCode plugin marketplace install (v1.5.9, recommended)**: this repository doubles as a ZCode plugin marketplace (root `marketplace.json`). Add the repository as a plugin-marketplace source in ZCode, then install the `stepfun-usage-monitor` plugin to get:
+**ZCode plugin marketplace install (v1.5.10, recommended)**: this repository doubles as a ZCode plugin marketplace (root `marketplace.json`). Add the repository as a plugin-marketplace source in ZCode, then install the `stepfun-usage-monitor` plugin to get:
 
 - the `/sfm` command: query usage and raise a **docked popup** at the bottom of the screen in one step (ultra-compact KPI strip, ~1000×190, auto-docked bottom-center; the proxy starts automatically when not running; repeated calls only focus the existing popup);
 - the "⤢ Full Display" button inside the popup: raise the standalone browser dashboard at any time;
-- the bundled `.mcp.json` (stdio MCP pointing at the repo's unified entry via `${CLAUDE_PLUGIN_ROOT}`) — no manual MCP config pasting needed.
+- the bundled `.mcp.json` (stdio MCP pointing at the **in-plugin runtime entry** via `${CLAUDE_PLUGIN_ROOT}` — self-contained, starts directly after install) — no manual MCP config pasting needed.
 
-Plugin layout (per the official ZCode spec):
+Plugin layout (per the official ZCode spec; `runtime/` self-contained since v1.5.10):
 
 ```
 marketplace.json                      marketplace manifest (plugins[] → ./plugins/stepfun-usage-monitor)
 plugins/stepfun-usage-monitor/
-├─ .zcode-plugin/plugin.json         plugin manifest (name/version/commands/mcpServers…)
+├─ .zcode-plugin/plugin.json         plugin manifest (name/version/description_i18n/commands/mcpServers…)
 ├─ commands/sfm.md                   standard command (/sfm)
-└─ .mcp.json                         stdio MCP server definition
+├─ .mcp.json                         stdio MCP server definition (${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs --mcp)
+└─ runtime/                          self-contained runtime directory (synced from the repo root, byte-identical; the MCP server starts directly after install)
+   ├─ bin/cli.mjs                    unified CLI entry (proxy mode by default / --mcp mode)
+   ├─ proxy.mjs / mcp-server.mjs / stats.mjs / dashboard.html / package.json
+   └─ lib/                          paths / providers / open-panel / replay-worker
 ```
+
+> ZCode unpacks only the plugin directory itself when installing a plugin zip (repo-root files are not included), so every runtime file must live inside `runtime/` — exactly what v1.5.10 fixes for "`/sfm` does nothing after install". After changing a repo-root runtime file, re-run `node test/sync-plugin-runtime.mjs` (the script includes byte-for-byte verification).
 
 **ZCode setup (MCP chat queries, manual config)**: ZCode → Settings → MCP Servers → Add, JSON mode:
 
@@ -121,8 +127,8 @@ plugins/stepfun-usage-monitor/
 
 For VS Code and its forks (Cursor, VSCodium, …): browse the dashboard inside the IDE with a **bottom-bar panel / editor window / standalone browser**, and the proxy is pulled up automatically via `npx` from GitHub when not running (`stepfunMonitor.autoStart`, on by default).
 
-1. Download `stepfun-monitor-1.5.9.vsix` from the GitHub Release (a same-named copy lives in `ide-extension/dist/`).
-2. Install: `code --install-extension stepfun-monitor-1.5.9.vsix`, or the Extensions view → `…` → **Install from VSIX…**.
+1. Download `stepfun-monitor-1.5.10.vsix` from the GitHub Release (a same-named copy lives in `ide-extension/dist/`).
+2. Install: `code --install-extension stepfun-monitor-1.5.10.vsix`, or the Extensions view → `…` → **Install from VSIX…**.
 3. Commands in the Command Palette (Ctrl+Shift+P):
    - **StepFun Monitor: Show Bottom Bar Panel** — dashboard embedded in the bottom bar (`?layout=panel`)
    - **StepFun Monitor: Open in Window** — standalone editor window (`?layout=window`)
@@ -130,7 +136,7 @@ For VS Code and its forks (Cursor, VSCodium, …): browse the dashboard inside t
    - **StepFun Monitor: Start Local Proxy (npx from GitHub)**
 4. The status bar shows today's token consumption; the proxy address and more are configurable under `stepfunMonitor.*`.
 
-> **ZCode Desktop** is a standalone Electron app (not the VS Code kernel) and does not support VSIX extensions. ZCode users should use **Option 1** plus the plugin-marketplace install (v1.5.9, above) and the browser layouts below.
+> **ZCode Desktop** is a standalone Electron app (not the VS Code kernel) and does not support VSIX extensions. ZCode users should use **Option 1** plus the plugin-marketplace install (v1.5.10, above) and the browser layouts below.
 
 ### Option 3: Manual install (kept for compatibility)
 
@@ -167,7 +173,7 @@ The same dashboard renders in three layouts via the `?layout=` parameter, switch
 - `open-window.cmd` opens the small window as a borderless Chrome/Edge `--app` window; `open-panel.cmd` opens a small bottom-bar window.
 - Bottom-bar windows raised via the MCP `open_monitor_panel` tool or `--panel` are **auto-docked bottom-center** based on the primary screen resolution; repeated calls only focus the existing window.
 - In embedded modes, the "↗ browser page" button jumps out to a standalone browser page; the bottom bar (docked popup) instead offers the "⤢ Full Display" standalone entry in its title row; the full page offers "window" and "bottom bar" entries.
-- **Inside ZCode (v1.5.9 docked popup)**: after installing the stepfun-usage-monitor plugin from the marketplace, tell the agent "show token usage" or type `/sfm` to raise the docked popup at the bottom of the screen (`?layout=panel`, auto-docked); click "⤢ Full Display" inside it to open the standalone browser dashboard. The MCP tool `open_monitor_panel(mode="panel"|"full")` or the CLI `node bin/cli.mjs --panel [full]` raises it directly as well.
+- **Inside ZCode (v1.5.10 docked popup)**: after installing the stepfun-usage-monitor plugin from the marketplace, tell the agent "show token usage" or type `/sfm` to raise the docked popup at the bottom of the screen (`?layout=panel`, auto-docked); click "⤢ Full Display" inside it to open the standalone browser dashboard. The MCP tool `open_monitor_panel(mode="panel"|"full")` or the CLI `node bin/cli.mjs --panel [full]` raises it directly as well.
 - **Inside VS Code-family IDEs**: after installing the Option 2 extension, the bottom-bar panel / window / browser modes work out of the box.
 
 ## Interaction Performance and Performance Modes (v1.4.0)
@@ -339,14 +345,18 @@ stepfun-usage-monitor/
 ├─ open-window.cmd     Small-window launcher (borderless Chrome/Edge --app window)
 ├─ open-panel.cmd      Bottom-bar launcher
 ├─ marketplace.json    ZCode plugin marketplace manifest (v1.5.9)
-├─ plugins/stepfun-usage-monitor/   Official ZCode plugin directory (v1.5.9)
-│  ├─ .zcode-plugin/plugin.json  plugin manifest (name/version/commands/mcpServers…)
+├─ plugins/stepfun-usage-monitor/   Official ZCode plugin directory (v1.5.9; runtime/ self-contained since v1.5.10)
+│  ├─ .zcode-plugin/plugin.json  plugin manifest (name/version/description_i18n/commands/mcpServers…)
 │  ├─ commands/sfm.md            standard command (/sfm: query usage + raise the docked popup)
-│  └─ .mcp.json                  stdio MCP server definition (${CLAUDE_PLUGIN_ROOT})
+│  ├─ .mcp.json                  stdio MCP server definition (${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs --mcp)
+│  └─ runtime/                   self-contained runtime directory (synced from the repo root, byte-identical; the MCP server starts directly after install)
+│     ├─ bin/cli.mjs             unified CLI entry (proxy mode by default / --mcp mode)
+│     ├─ proxy.mjs / mcp-server.mjs / stats.mjs / dashboard.html / package.json
+│     └─ lib/                    paths / providers / open-panel / replay-worker
 ├─ ide-extension/      VS Code-family extension (bottom bar / window / browser + status bar)
 │  ├─ package.json / extension.js / media/chart.svg
-│  ├─ test/build-vsix.mjs builds it → dist/stepfun-monitor-1.5.9.vsix
-│  └─ dist/stepfun-monitor-1.5.9.vsix  installable as-is
+│  ├─ test/build-vsix.mjs builds it → dist/stepfun-monitor-1.5.10.vsix
+│  └─ dist/stepfun-monitor-1.5.10.vsix  installable as-is
 ├─ docs/releases/      Bilingual release notes per version (Chinese + English)
 ├─ data/usage.jsonl    Usage details (append-only, created on first run; default location for manual installs)
 ├─ data/aggregate.json Aggregate snapshot (auto-generated, deletable)
@@ -359,8 +369,8 @@ stepfun-usage-monitor/
    ├─ verify-ui.mjs        Dashboard / CLI report checks
    ├─ ui-perf-check.mjs    v1.4.0 interaction performance / 3 performance modes: static assertions + payload measurements
    ├─ ui-feature-check.mjs v1.3.0 Pelican-test one-click copy: static assertions
-   ├─ v15-check.mjs        v1.5.9 multi-provider/direct-load/layouts/extension/data-directory/ZCode-plugin-structure/docked-popup assertions (static + runtime)
-   ├─ npm-pack-check.mjs   v1.5.0 npx direct-load chain verification (npm pack → install → dual-mode run, 15 items)
+   ├─ v15-check.mjs        v1.5.10 multi-provider/direct-load/layouts/extension/data-directory/ZCode-plugin-structure/docked-popup/plugin-runtime-self-containment assertions (static + runtime)
+   ├─ npm-pack-check.mjs   v1.5.0 npx direct-load chain verification (npm pack → install → bin dual-mode + plugin runtime MCP run)
    ├─ build-vsix.mjs       Zero-dependency VSIX build (ZIP writing + CRC32 + read-back self-verification)
    ├─ browser-smoke.mjs    Real-browser runtime checks (CDP-driven local Chrome/Edge; three layouts, three modes, provider switcher, bottom-bar Full Display button)
    ├─ replay-parity.mjs    Parallel vs sequential replay consistency check
@@ -377,8 +387,8 @@ node test/mcp-test.mjs                :: MCP: initialize / tools/list / tools/ca
 node test/verify-ui.mjs               :: dashboard accessibility and CLI report format
 node test/ui-perf-check.mjs           :: 3 performance modes, wait animations, lite slim payload assertions
 node test/ui-feature-check.mjs        :: Pelican-test one-click copy static assertions
-node test/v15-check.mjs               :: v1.5.9: multi-provider routing/switching/byProvider, GitHub direct load, three layouts, ZCode plugin structure, docked popup, extension, data directory (static + runtime)
-node test/npm-pack-check.mjs          :: v1.5.0: npm pack → tarball install → bin dual-mode real run (15 items)
+node test/v15-check.mjs               :: v1.5.10: multi-provider routing/switching/byProvider, GitHub direct load, three layouts, ZCode plugin structure, docked popup, plugin runtime self-containment, extension, data directory (static + runtime)
+node test/npm-pack-check.mjs          :: v1.5.10: npm pack → tarball install → bin dual-mode + plugin runtime MCP real run
 node test/build-vsix.mjs              :: build the VSIX (ide-extension/dist/)
 node test/browser-smoke.mjs           :: real-browser runtime checks incl. three layouts, three modes and the provider switcher (needs local Chrome or Edge)
 node test/replay-parity.mjs           :: parallel vs sequential replay: field-by-field aggregate consistency (run bench first)
@@ -394,7 +404,8 @@ set PORT=8787 && set DATA_DIR=demo-data && node proxy.mjs
 
 ## FAQ
 
-- **Want the agent to show usage at the bottom of the screen (v1.5.9)**: install the stepfun-usage-monitor plugin from the ZCode marketplace and type `/sfm` (or tell the agent "open the usage monitor popup") to raise the docked popup; click "⤢ Full Display" inside it for the full dashboard. CLI equivalent: `node bin/cli.mjs --panel [full]`.
+- **Want the agent to show usage at the bottom of the screen (v1.5.10)**: install the stepfun-usage-monitor plugin from the ZCode marketplace and type `/sfm` (or tell the agent "open the usage monitor popup") to raise the docked popup; click "⤢ Full Display" inside it for the full dashboard. CLI equivalent: `node bin/cli.mjs --panel [full]`.
+- **`/sfm` does nothing after installing the ZCode plugin (fixed in v1.5.10)**: in v1.5.9 and earlier the plugin's `.mcp.json` pointed at the repo-root entry via `${CLAUDE_PLUGIN_ROOT}/../../bin/cli.mjs`, but ZCode unpacks only the plugin directory itself when installing (repo-root files are not included), so the MCP server never started. Upgrade to v1.5.10 — the plugin now bundles the self-contained `runtime/` directory and `.mcp.json` points directly at `${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs`; if it still does nothing, confirm the plugin version is 1.5.10 in ZCode's plugin manager and reload the window.
 - **Port already in use**: set `PORT=8788`, restart, and update the client's Base URL accordingly.
 - **Streaming chats show no tokens**: make sure `DISABLE_USAGE_INJECT=1` is not set; some very old clients strip `stream_options` themselves — enable a "track usage/usage" style option in the client if available.
 - **Want to track other providers (GLM / DeepSeek / Kimi…) too**: no second instance needed — switch the active provider with one click in the dashboard top bar; or route per request with the `/p/<key>/v1/...` path prefix or the `X-Provider: <key>` header; custom gateways can be added in `providers.json`. See "Multi-Provider Support".

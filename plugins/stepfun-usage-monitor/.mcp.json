@@ -3,7 +3,7 @@
     "stepfun-usage": {
       "command": "node",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/../../bin/cli.mjs",
+        "${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs",
         "--mcp"
       ]
     }

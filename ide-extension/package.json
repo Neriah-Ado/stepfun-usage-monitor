@@ -2,7 +2,7 @@
   "name": "stepfun-monitor",
   "displayName": "StepFun Usage Monitor",
   "description": "在 IDE 内浏览大模型 API Token 用量监控仪表盘（多服务商）：底边栏面板 / 小窗 / 独立浏览器页面三种方式",
-  "version": "1.5.9",
+  "version": "1.5.10",
   "publisher": "neriah-ado",
   "license": "MIT",
   "private": true,

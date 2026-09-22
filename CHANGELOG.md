@@ -2,6 +2,17 @@
 
 > 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
 
+## v1.5.10（ZCode 插件安装后自包含）
+
+### 修复
+- **ZCode 安装插件后 `/sfm` 无法调出插件**：ZCode 安装插件 zip 时只解压插件目录本身（不含仓库根文件），v1.5.9 的 `.mcp.json` 经 `${CLAUDE_PLUGIN_ROOT}/../../bin/cli.mjs` 引用仓库根入口，安装后路径断裂 → MCP 服务器无法启动。现新增 `plugins/stepfun-usage-monitor/runtime/` 自包含目录（全部运行文件内置、与仓库根逐字节一致，由 `test/sync-plugin-runtime.mjs` 同步校验），`.mcp.json` 改指 `${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs --mcp`，安装后立即可解析。
+
+### 新增
+- **runtime 同步脚本与自包含校验**：`test/sync-plugin-runtime.mjs` 一键同步 + 逐字节校验 + `RUNTIME-INFO.txt` 版本标记 + `cli --version` 快检；`v15-check` 新增 0c 节断言（runtime 完整性 + .mcp.json 路径）。
+- **插件安装态 MCP 断言**：`mcp-test` / `npm-pack-check` 直接运行 `plugins/*/runtime/bin/cli.mjs --mcp`（含 npm tarball 安装后同路径），`initialize` + `tools/list` 全通过。
+- `.zcode-plugin/plugin.json` 新增 `description_i18n`（en / zh-CN），对齐 ZCode 官方 plugin.json 字段。
+- 版本号统一升级 1.5.10；VSIX 重建为 `stepfun-monitor-1.5.10.vsix`。
+
 ## v1.5.9（ZCode 官方插件格式 + Agent 页面吸附弹窗）
 
 ### 新增

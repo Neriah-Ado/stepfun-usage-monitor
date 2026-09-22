@@ -6,7 +6,7 @@
  *   3) 断言：默认(进阶)渲染成功 → 切轻量(图表退化/动画全关/精简载荷) → 切极致(动效开启)
  *   4) 点击「提示」按钮验证乐观 UI 反馈
  *   5) 三档各截图一张（输出到 repo 之外，供人工核对）
- * v1.5.9：底栏（吸附弹窗）新增「⤢ 全量显示」按钮与窗口标题断言；小窗/完整页的入口可见性补测
+ * v1.5.10：底栏（吸附弹窗）新增「⤢ 全量显示」按钮与窗口标题断言；小窗/完整页的入口可见性补测
  * 结果写入 test/browser-smoke.txt
  */
 import fs from 'node:fs';
@@ -111,7 +111,7 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const z = await waitHttp(`http://127.0.0.1:${PORT}/healthz`);
-  assert('代理就绪且版本 1.5.9', z && z.version === '1.5.9', z ? 'version=' + z.version : 'no response');
+  assert('代理就绪且版本 1.5.10', z && z.version === '1.5.10', z ? 'version=' + z.version : 'no response');
   if (!z) throw new Error('代理未就绪');
 
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-prof-'));
@@ -164,7 +164,7 @@ try {
   assert('模型排行有数据行', (await cdp.eval("document.querySelectorAll('#tb-model tr').length")) > 0);
   assert('最近请求有数据行', (await cdp.eval("document.querySelectorAll('#tb-recent tr').length")) > 0);
   const sub91 = await cdp.eval("document.querySelector('#sub').textContent");
-  assert('页脚显示 v1.5.9 与轮询间隔', sub91.includes('v1.5.9') && sub91.includes('30s'), sub91.slice(0, 90));
+  assert('页脚显示 v1.5.10 与轮询间隔', sub91.includes('v1.5.10') && sub91.includes('30s'), sub91.slice(0, 90));
   const s1 = await shot('shot-balanced.png');
   log('截图: ' + s1);
 
@@ -247,7 +247,7 @@ try {
   assert('底栏长表格区已隐藏', (await cdp.eval("document.querySelector('#p-recent').offsetHeight")) === 0);
   assert('底栏隐藏服务商切换器', (await cdp.eval("getComputedStyle(document.querySelector('#prov-bar')).display")) === 'none');
   assert('底栏模式自身切换链接隐藏', (await cdp.eval("getComputedStyle(document.querySelector('#lnk-panel')).display")) === 'none');
-  // v1.5.9：旧入口 btn-open 位于已隐藏的档位栏内（父隐藏 → 实际不可见），改由标题栏 btn-full 承担
+  // v1.5.10：旧入口 btn-open 位于已隐藏的档位栏内（父隐藏 → 实际不可见），改由标题栏 btn-full 承担
   assert('底栏「全量显示」按钮可见（吸附弹窗独立页入口）',
     (await cdp.eval("getComputedStyle(document.querySelector('#btn-full')).display")) !== 'none');
   assert('底栏「全量显示」指向完整页并新窗打开',
