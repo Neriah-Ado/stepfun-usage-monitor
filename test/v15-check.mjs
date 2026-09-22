@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * v1.5.5 静态 + 运行时断言：多服务商 / GitHub URL 直载 / 三种嵌入布局 / VSIX 扩展 / 统一数据目录
+ * v1.5.9 静态 + 运行时断言：多服务商 / GitHub URL 直载 / 三种嵌入布局 / VSIX 扩展 /
+ * 统一数据目录 / ZCode 官方插件结构 / 吸附弹窗与全量显示按钮
  * 结果写入 test/v15-check.txt
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -28,6 +29,7 @@ try {
   const mcp = R('mcp-server.mjs');
   const stats = R('stats.mjs');
   const dash = R('dashboard.html');
+  const openPanel = R('lib/open-panel.mjs');
   const providers = exists('lib/providers.mjs') ? R('lib/providers.mjs') : '';
   const worker = exists('lib/replay-worker.mjs') ? R('lib/replay-worker.mjs') : '';
 
@@ -56,14 +58,41 @@ try {
   assert('底栏布局隐藏切换器、小窗隐藏服务商表',
     /html\[data-layout="panel"\] #prov-bar\{display:none\}/.test(dash) && /html\[data-layout="window"\] #p-providers\{display:none!important\}/.test(dash));
 
+  /* ===== 0b. ZCode 官方插件结构（v1.5.9） ===== */
+  const mktRaw = exists('marketplace.json') ? R('marketplace.json') : '';
+  let mkt = {}; try { mkt = JSON.parse(mktRaw); } catch { /* parse fail */ }
+  assert('marketplace.json 存在且含 plugins[]', Array.isArray(mkt.plugins) && mkt.plugins.length > 0);
+  assert('marketplace.json 条目指向 ./plugins/stepfun-usage-monitor 且 version=1.5.9',
+    mkt.plugins.some((p) => p.name === 'stepfun-usage-monitor' && p.source === './plugins/stepfun-usage-monitor' && p.version === '1.5.9'));
+  const pluginJsonPath = 'plugins/stepfun-usage-monitor/.zcode-plugin/plugin.json';
+  const pluginJsonRaw = exists(pluginJsonPath) ? R(pluginJsonPath) : '';
+  let pluginJson = {}; try { pluginJson = JSON.parse(pluginJsonRaw); } catch { /* parse fail */ }
+  assert('plugin.json 存在且 name 合法（^[a-z0-9][a-z0-9._-]{0,127}$）', /^[a-z0-9][a-z0-9._-]{0,127}$/.test(pluginJson.name || ''), pluginJson.name);
+  assert('plugin.json version=1.5.9 且声明 commands/mcpServers',
+    pluginJson.version === '1.5.9' && pluginJson.commands === 'commands' && pluginJson.mcpServers === '.mcp.json');
+  const cmdPath = 'plugins/stepfun-usage-monitor/commands/sfm.md';
+  assert('标准命令 commands/sfm.md 存在且带 frontmatter description',
+    exists(cmdPath) && /^---\n[\s\S]*?description:/.test(exists(cmdPath) ? R(cmdPath) : ''));
+  assert('commands/sfm.md 驱动 open_monitor_panel 与 query_stepfun_usage',
+    exists(cmdPath) && R(cmdPath).includes('open_monitor_panel') && R(cmdPath).includes('query_stepfun_usage'));
+  const mcpJsonPath = 'plugins/stepfun-usage-monitor/.mcp.json';
+  const mcpJsonRaw = exists(mcpJsonPath) ? R(mcpJsonPath) : '';
+  let mcpJson = {}; try { mcpJson = JSON.parse(mcpJsonRaw); } catch { /* parse fail */ }
+  assert('.mcp.json 配置 stdio MCP 服务器（command + args）',
+    !!(mcpJson.mcpServers && mcpJson.mcpServers['stepfun-usage'] && mcpJson.mcpServers['stepfun-usage'].command && Array.isArray(mcpJson.mcpServers['stepfun-usage'].args)));
+  assert('.mcp.json 使用 ${CLAUDE_PLUGIN_ROOT} 模板变量指向仓库入口',
+    mcpJsonRaw.includes('${CLAUDE_PLUGIN_ROOT}') && mcpJsonRaw.includes('bin/cli.mjs') && mcpJsonRaw.includes('--mcp'));
+  assert('旧非标准 zcode/command-sfm.md 已移除', !exists('zcode/command-sfm.md'));
+
   /* ===== 1. GitHub URL 直载（npx bin） ===== */
   assert('bin/cli.mjs 带 shebang', cli.startsWith('#!/usr/bin/env node'));
   assert('bin/cli.mjs 支持 --mcp 分发', /--mcp/.test(cli) && /mcp-server\.mjs/.test(cli));
   assert('bin/cli.mjs 支持 --port / --data-dir', /--port/.test(cli) && /--data-dir/.test(cli));
   assert('bin/cli.mjs 帮助含 npx 直载示例', cli.includes('npx -y github:Neriah-Ado/stepfun-usage-monitor'));
-  assert('package.json version=1.5.5', pkg.version === '1.5.5');
+  assert('package.json version=1.5.9', pkg.version === '1.5.9');
   assert('package.json bin 指向 cli', pkg.bin && pkg.bin['stepfun-usage-monitor'] === 'bin/cli.mjs');
-  assert('package.json files 含 bin/lib/zcode', ['bin/', 'lib/', 'zcode/'].every((f) => (pkg.files || []).includes(f)));
+  assert('package.json files 含 bin/lib/plugins/marketplace.json 且不含 zcode',
+    ['bin/', 'lib/', 'plugins/', 'marketplace.json'].every((f) => (pkg.files || []).includes(f)) && !(pkg.files || []).includes('zcode/'));
   assert('package.json repository 指向 GitHub', /github\.com\/Neriah-Ado\/stepfun-usage-monitor/.test(JSON.stringify(pkg.repository || {})));
   assert('lib/paths.mjs 四级解析（env/home/legacy/home）',
     /DATA_DIR/.test(pathsMjs) && /HOME_DATA_DIR/.test(pathsMjs) && /usage\.jsonl/.test(pathsMjs) && /export function resolveDataDir/.test(pathsMjs));
@@ -73,16 +102,21 @@ try {
   assert('stats.mjs 接入统一数据目录', /resolveDataDir/.test(stats));
 
   /* ===== 2. 版本一致性 ===== */
-  assert('proxy.mjs VERSION=1.5.5', /const VERSION = '1\.5\.5'/.test(proxy));
-  assert('mcp-server.mjs serverInfo 1.5.5', /version: '1\.5\.5'/.test(mcp));
-  assert('proxy.mjs 头部含 v1.5.5 说明', proxy.includes('v1.5.5'));
+  assert('proxy.mjs VERSION=1.5.9', /const VERSION = '1\.5\.9'/.test(proxy));
+  assert('mcp-server.mjs serverInfo 1.5.9', /version: '1\.5\.9'/.test(mcp));
+  assert('proxy.mjs 头部含 v1.5.9 说明', proxy.includes('v1.5.9'));
+  assert('ide-extension manifest version=1.5.9', /"version": "1\.5\.9"/.test(R('ide-extension/package.json')));
 
-  /* ===== 3. 三种嵌入布局 ===== */
+  /* ===== 3. 三种嵌入布局 + 底栏全量显示按钮 ===== */
   assert('仪表盘 LAYOUT 常量', /const LAYOUT = document\.documentElement\.dataset\.layout \|\| 'full'/.test(dash));
   assert('防 FOUC 内联脚本（head 内先于样式写 data-layout）',
     /URLSearchParams\(location\.search\)/.test(dash) && dash.indexOf('URLSearchParams(location.search)') < dash.indexOf('<style>'));
   assert('布局切换链接（完整页/小窗/底栏）', ['lnk-full', 'lnk-window', 'lnk-panel'].every((id) => dash.includes(`id="${id}"`)));
   assert('独立浏览器入口 btn-open', /id="btn-open" href="\/" target="_blank"/.test(dash));
+  assert('底栏「全量显示」按钮（btn-full → / target=_blank）', /id="btn-full" href="\/" target="_blank"/.test(dash));
+  assert('全量显示按钮仅底栏显示（默认隐藏 + panel 布局显示）',
+    /#btn-full\{display:none\}/.test(dash) && /html\[data-layout="panel"\] #btn-full\{display:inline-flex\}/.test(dash));
+  assert('底栏窗口标题改写为「吸附弹窗」', /document\.title/.test(dash) && /吸附弹窗/.test(dash) && /小窗/.test(dash));
   assert('底栏 CSS：隐藏档位栏/长面板、紧凑卡片',
     /html\[data-layout="panel"\] #perf-bar\{display:none\}/.test(dash) &&
     /html\[data-layout="panel"\] #app > :not\(\.cards\)\{display:none!important\}/.test(dash) &&
@@ -94,16 +128,25 @@ try {
   assert('面板具名 id（p-models/p-agents）', /id="p-models"/.test(dash) && /id="p-agents"/.test(dash));
   assert('底栏布局走 lite 载荷', /LAYOUT === 'panel'/ .test(dash) && /\?&lite=1|'&lite=1'/.test(dash));
 
-  /* ===== 4. 小窗 / 底栏启动器与 ZCode 原生命令 ===== */
+  /* ===== 4. 小窗 / 底栏启动器 / 吸附弹窗拉起器 / MCP 工具 ===== */
   assert('open-window.cmd 存在且用 --app 无边框窗口', exists('open-window.cmd') && /--app=|window-size|app=/.test(exists('open-window.cmd') ? R('open-window.cmd') : ''));
   assert('open-panel.cmd 存在（底部横条窗口）', exists('open-panel.cmd') && /layout=panel/.test(exists('open-panel.cmd') ? R('open-panel.cmd') : ''));
-  assert('zcode/command-sfm.md 存在（ZCode 原生 /sfm 命令）', exists('zcode/command-sfm.md'));
+  assert('lib/open-panel.mjs 存在且导出 openMonitorPanel / findBrowser / ensureProxy',
+    exists('lib/open-panel.mjs') && /export async function openMonitorPanel/.test(openPanel)
+    && /export function findBrowser/.test(openPanel) && /export async function ensureProxy/.test(openPanel));
+  assert('lib/open-panel.mjs 用 --app + window-size + window-position 停靠底部',
+    /--app=/.test(openPanel) && /--window-size=/.test(openPanel) && /--window-position=/.test(openPanel));
+  assert('lib/open-panel.mjs 支持 dryRun 与 mode=full', /opts\.dryRun/.test(openPanel) && /'full'/.test(openPanel));
+  assert('bin/cli.mjs 支持 --panel [panel|full]', /--panel/.test(cli) && /openMonitorPanel/.test(cli));
+  assert('MCP 暴露 open_monitor_panel 工具（panel/full + dryRun）',
+    /name: 'open_monitor_panel'/.test(mcp) && /enum: \['panel', 'full'\]/.test(mcp) && /dryRun/.test(mcp) && /openMonitorPanel/.test(mcp));
+  assert('MCP open_monitor_panel 异步分发（Promise 分支写响应）', /typeof result\.then === 'function'/.test(mcp));
 
   /* ===== 5. VS Code 系 IDE 扩展 ===== */
   const extPkgRaw = exists('ide-extension/package.json') ? R('ide-extension/package.json') : '';
   let extPkg = {};
   try { extPkg = JSON.parse(extPkgRaw); } catch { /* parse fail */ }
-  assert('扩展 manifest version=1.5.5', extPkg.version === '1.5.5');
+  assert('扩展 manifest version=1.5.9', extPkg.version === '1.5.9');
   assert('扩展提供三种打开命令', ['openPanel', 'openWindow', 'openInBrowser'].every((c) => extPkgRaw.includes(`stepfunMonitor.${c}`)));
   assert('扩展有底边栏视图容器', extPkgRaw.includes('viewsContainers') && extPkgRaw.includes('"panel"'));
   const extJs = exists('ide-extension/extension.js') ? R('ide-extension/extension.js') : '';
@@ -112,9 +155,10 @@ try {
   assert('扩展浏览器模式用 env.openExternal', extJs.includes('env.openExternal'));
   assert('扩展 iframe 指向 layout=panel / layout=window', extJs.includes('layout=panel') && extJs.includes('layout=window'));
   assert('扩展含状态栏今日 tokens', extJs.includes('createStatusBarItem'));
-  assert('VSIX 已构建且非空', exists('ide-extension/dist/stepfun-monitor-1.5.5.vsix') &&
-    fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.5.vsix')).size > 1000,
-    exists('ide-extension/dist/stepfun-monitor-1.5.5.vsix') ? fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.5.vsix')).size + 'B' : 'missing');
+  const vsixPath = path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.9.vsix');
+  assert('VSIX 已构建且非空（1.5.9）', exists('ide-extension/dist/stepfun-monitor-1.5.9.vsix') &&
+    fs.statSync(vsixPath).size > 1000,
+    exists('ide-extension/dist/stepfun-monitor-1.5.9.vsix') ? fs.statSync(vsixPath).size + 'B' : 'missing');
   assert('VSIX 构建器存在（零依赖）', exists('test/build-vsix.mjs'));
 
   /* ===== 6. 运行时：?layout= 由服务端原样下发（同一 HTML，前端内联脚本分流） ===== */
@@ -128,7 +172,7 @@ try {
     await sleep(250);
     try { health = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json(); } catch { /* retry */ }
   }
-  assert('运行时 /healthz version=1.5.5', !!health && health.version === '1.5.5');
+  assert('运行时 /healthz version=1.5.9', !!health && health.version === '1.5.9');
   if (health) {
     htmlPanel = await (await fetch(`http://127.0.0.1:${PORT}/?layout=panel`)).text();
     htmlFull = await (await fetch(`http://127.0.0.1:${PORT}/`)).text();
@@ -160,7 +204,7 @@ try {
   try {
     let h2 = null;
     for (let i = 0; i < 60 && !h2; i++) { await sleep(250); try { h2 = await (await fetch(`http://127.0.0.1:${PP}/healthz`)).json(); } catch { /* retry */ } }
-    assert('多服务商代理就绪', !!h2 && h2.version === '1.5.5' && h2.provider === 'stepfun');
+    assert('多服务商代理就绪', !!h2 && h2.version === '1.5.9' && h2.provider === 'stepfun');
 
     const post = async (p, body, headers) => {
       const r = await fetch(`http://127.0.0.1:${PP}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(headers || {}) }, body: JSON.stringify(body) });
@@ -248,6 +292,25 @@ try {
     for (const c of [mockA, mockB, proxy2]) { try { c.kill('SIGKILL'); } catch { /* ignore */ } }
     try { fs.rmSync(dataTmp, { recursive: true, force: true }); } catch { /* ignore */ }
     try { fs.rmSync(dataTmp2, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+
+  /* ===== 8. 运行时：吸附弹窗拉起器（v1.5.9；dryRun 不真正开窗，ensureProxy 用后即杀） ===== */
+  try {
+    const op = await import(pathToFileURL(path.join(ROOT, 'lib', 'open-panel.mjs')).href);
+    const dPanel = await op.openMonitorPanel({ mode: 'panel', dryRun: true, port: 8798 });
+    assert('openMonitorPanel dryRun(panel) 返回吸附弹窗 URL',
+      dPanel.ok === true && dPanel.mode === 'panel' && dPanel.url === 'http://127.0.0.1:8798/?layout=panel', dPanel.url);
+    const dFull = await op.openMonitorPanel({ mode: 'full', dryRun: true, port: 8798 });
+    assert('openMonitorPanel dryRun(full) 返回完整页 URL',
+      dFull.ok === true && dFull.mode === 'full' && dFull.url === 'http://127.0.0.1:8798/', dFull.url);
+    const ss = op.screenSize();
+    assert('screenSize 返回 null 或正尺寸', ss === null || (ss.width > 0 && ss.height > 0), ss ? `${ss.width}x${ss.height}` : 'null');
+    assert('findBrowser 探测到本机 Edge/Chrome', !!dPanel.browser, dPanel.browser || 'none');
+    const up = await op.ensureProxy(8799, 15000);
+    assert('ensureProxy 在空闲端口自动拉起代理', up.started === true, JSON.stringify({ started: up.started, err: up.error || '' }));
+    try { up.child && up.child.kill('SIGKILL'); } catch { /* ignore */ }
+  } catch (e) {
+    assert('open-panel 运行时段无异常', false, (e && e.message) || String(e));
   }
 
   OUT.push('');

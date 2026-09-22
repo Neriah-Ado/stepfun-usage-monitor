@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * stepfun-usage-monitor — 大模型 API Token 用量本地监控代理（多服务商）
+ * v1.5.9 — 适配 ZCode 官方插件市场结构（marketplace.json + .zcode-plugin/plugin.json + commands/）+ Agent 页面吸附弹窗（open_monitor_panel）
  * v1.5.5 — 多服务商支持（一键切换 GLM/DeepSeek/Kimi/MiniMax/Qwen/Yi 等）+ byProvider 统计
  * v1.5.0 — GitHub URL 直载（npx）+ 仪表盘三种嵌入布局（完整页/小窗/底栏）+ 统一数据目录解析
  * v1.4.0 — 交互性能优化 + 轻量 / 进阶 / 极致 3 档性能模式
@@ -63,7 +64,7 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.5.5';
+const VERSION = '1.5.9';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });

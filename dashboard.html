@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>StepFun Token 用量监控</title>
-<script>/* v1.5.5：布局模式先于样式生效（?layout=window|panel|full），避免嵌入模式闪现完整页（FOUC） */
-(function(){try{var m=new URLSearchParams(location.search).get('layout');if(m==='window'||m==='panel')document.documentElement.dataset.layout=m;}catch(e){}})();
+<script>/* v1.5.9：布局模式先于样式生效（?layout=window|panel|full），避免嵌入模式闪现完整页（FOUC）；嵌入布局同时改写标题便于任务栏区分与唤焦 */
+(function(){try{var m=new URLSearchParams(location.search).get('layout');if(m==='window'||m==='panel'){document.documentElement.dataset.layout=m;document.title=(m==='panel'?'StepFun 用量监控 · 吸附弹窗':'StepFun 用量监控 · 小窗');}}catch(e){}})();
 </script>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--muted:#8a919f;--line:#ebedf0;--p:#5b7cfa;--c:#2fb8a6;--warn:#e2574c;--ok:#2fb86a}
@@ -47,6 +47,12 @@ tr:last-child td{border-bottom:none}
 #chart-svg{width:100%;height:auto;display:block}
 .chart-text{font-size:13px;color:#4b5563;line-height:1.7}
 #p-recent{content-visibility:auto;contain-intrinsic-size:auto 360px}
+
+/* ---------- v1.5.9：标题行与「全量显示」按钮（底栏吸附弹窗的独立页入口） ---------- */
+.head-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#btn-full{display:none}
+#btn-full{flex:none}
+html[data-layout="panel"] #btn-full{display:inline-flex}
 
 /* ---------- 性能档位切换（v1.4.0，位于 #app 之外，不受重绘影响） ---------- */
 .perf{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}
@@ -164,7 +170,10 @@ html[data-layout="panel"] #toast{bottom:8px}
 <body>
 <div class="progress" id="progress"><i></i></div>
 <div class="wrap">
-  <h1>StepFun API Token 用量监控</h1>
+  <div class="head-row">
+    <h1>StepFun API Token 用量监控</h1>
+    <a class="btn-ghost" id="btn-full" href="/" target="_blank" rel="noopener" title="在独立浏览器页面打开完整仪表盘（全量显示）">⤢ 全量显示</a>
+  </div>
 
   <div class="perf" id="perf-bar">
     <span class="t">性能档位</span>

@@ -2,6 +2,18 @@
 
 > 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
 
+## v1.5.9（ZCode 官方插件格式 + Agent 页面吸附弹窗）
+
+### 新增
+- **ZCode 官方插件市场结构**：新增根目录 `marketplace.json` 与 `plugins/stepfun-usage-monitor/`（`.zcode-plugin/plugin.json` + `commands/sfm.md` 标准命令 + `.mcp.json` stdio MCP 配置，`${CLAUDE_PLUGIN_ROOT}` 指向仓库统一入口）；移除旧的非标准 `zcode/command-sfm.md`；npm 包 `files` 同步更新（npx 直载用户同样获得插件文件）。
+- **Agent 页面吸附弹窗**：新增 `lib/open-panel.mjs`（零依赖）——探测 Edge/Chrome → `--app` 无边框窗口打开 `?layout=panel`，按主屏分辨率自动停靠底部居中（1000×190）；代理未运行自动拉起；弹窗已开时重复调用只聚焦不重开（Windows 标题唤焦）。MCP 新增 `open_monitor_panel` 工具（`mode=panel|full`，支持 `dryRun` 自检）；`bin/cli.mjs` 新增 `--panel [panel|full]`。
+- **「全量显示」按钮**：底栏（吸附弹窗）标题栏新增「⤢ 全量显示」，一键拉起独立浏览器完整仪表盘；嵌入布局窗口标题改写（底栏「吸附弹窗」/ 小窗「小窗」），便于任务栏区分与唤焦。
+- `/sfm` 命令重写为官方 frontmatter 格式：先拉吸附弹窗，再按天/模型/客户端/服务商分组汇报用量表格。
+
+### 修复
+- **底栏布局没有任何可见入口按钮**：`?layout=panel` 下整个性能档位栏 `#perf-bar` 被隐藏，其中的「↗ 浏览器页」实际不可见（原测试断言因父元素隐藏而恒真）。现底栏标题栏常驻「⤢ 全量显示」独立入口，`browser-smoke` 同步改为真实可见性断言。
+- `npm pack` 产物随插件结构更新：移除 `zcode/`，新增 `marketplace.json` 与 `plugins/`（含 `.zcode-plugin/`、`.mcp.json`）。
+
 ## v1.5.5（多服务商支持 + 服务商一键切换）
 
 ### 新增

@@ -2,7 +2,7 @@
 
 统计 StepFun API（阶跃星辰，OpenAI 兼容接口）的 Token 用量。**零 npm 依赖、常驻内存通常 < 60MB、所有数据仅存本地**，通过「本地反向代理」方式接入，因此天然兼容几乎所有 Agent / 客户端。
 
-**v1.5.5**：支持**多服务商**——同一个代理实例内一键切换 StepFun / 智谱 GLM / DeepSeek / Kimi / MiniMax / 通义千问 / 零一万物等 OpenAI 兼容 API（也可自定义任意网关），用量按服务商分组统计。完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)。
+**v1.5.9**：适配 **ZCode 官方插件市场结构**（`marketplace.json` + `plugins/` 标准插件目录），新增 **Agent 页面吸附弹窗**（屏幕底部超紧凑横条，自动停靠底部居中）与弹窗内「⤢ 全量显示」独立页入口；**多服务商支持**（v1.5.5）——同一个代理实例内一键切换 StepFun / 智谱 GLM / DeepSeek / Kimi / MiniMax / 通义千问 / 零一万物等 OpenAI 兼容 API（也可自定义任意网关），用量按服务商分组统计。完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)。
 
 > **[English README](README.en.md)** · 本文档为中文版。
 
@@ -75,7 +75,23 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 - 首次运行 npx 自动从 GitHub 下载并缓存，之后秒启；运行所需文件与 `bin/cli.mjs` 统一入口见 `package.json` 的 `bin` / `files` 字段。
 - **数据目录与 npm 缓存解耦**：npx 运行时数据统一落在 `~/.stepfun-usage-monitor/`（Windows 为 `C:\Users\<你>\.stepfun-usage-monitor\`），npm 缓存被清理不影响历史数据；目录解析优先级：`DATA_DIR` 环境变量 > `~/.stepfun-usage-monitor/`（存在即用）> 包内 `data/`（检测到历史 `usage.jsonl` 时原地兼容）。`providers.json` 同样放在数据目录。
 
-**ZCode 接入（MCP 对话查询）**：ZCode → 设置 → MCP 服务器 → 添加，JSON 模式填入：
+**ZCode 插件市场安装（v1.5.9，推荐）**：本仓库同时是一个 ZCode 插件市场（根目录 `marketplace.json`）。在 ZCode 中把本仓库添加为插件市场来源后，安装 `stepfun-usage-monitor` 插件，即可获得：
+
+- `/sfm` 命令：一键查询用量并在屏幕底部拉起**吸附弹窗**（超紧凑 KPI 横条，约 1000×190，自动停靠底部居中；代理未运行会自动拉起，重复调用只聚焦不重开）；
+- 弹窗内「⤢ 全量显示」按钮：随时拉起独立浏览器完整仪表盘；
+- 插件自带 `.mcp.json`（stdio MCP，`${CLAUDE_PLUGIN_ROOT}` 指向仓库统一入口），无需再手动粘贴 MCP 配置。
+
+插件目录结构（符合 ZCode 官方规范）：
+
+```
+marketplace.json                      市场清单（plugins[] → ./plugins/stepfun-usage-monitor）
+plugins/stepfun-usage-monitor/
+├─ .zcode-plugin/plugin.json         插件清单（name/version/commands/mcpServers…）
+├─ commands/sfm.md                   标准命令（/sfm）
+└─ .mcp.json                         stdio MCP 服务器定义
+```
+
+**ZCode 接入（MCP 对话查询，手动配置）**：ZCode → 设置 → MCP 服务器 → 添加，JSON 模式填入：
 
 ```json
 {
@@ -103,8 +119,8 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 
 适用于 VS Code 及其分支（Cursor、VSCodium 等）：在 IDE 内直接浏览仪表盘，支持 **底边栏面板 / 小窗 / 独立浏览器页** 三种方式；代理未运行时可自动 `npx` 从 GitHub 拉起（`stepfunMonitor.autoStart`，默认开启）。
 
-1. 从 GitHub Release 下载 `stepfun-monitor-1.5.5.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
-2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.5.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
+1. 从 GitHub Release 下载 `stepfun-monitor-1.5.9.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
+2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.9.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
 3. 命令面板（Ctrl+Shift+P）可用命令：
    - **StepFun 监控：显示底边栏面板** — 底边栏内嵌仪表盘（`?layout=panel`）
    - **StepFun 监控：小窗打开** — 独立编辑器小窗（`?layout=window`）
@@ -112,7 +128,7 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
    - **StepFun 监控：启动本地代理（npx 从 GitHub 拉起）**
 4. 状态栏实时显示今日 token 消耗；代理地址等在设置项 `stepfunMonitor.*` 中调整。
 
-> **ZCode 桌面版**是基于 Electron 的独立应用（非 VS Code 内核），不支持 VSIX 扩展。ZCode 用户请用**方式一** + 下文「仪表盘的三种浏览方式」。
+> **ZCode 桌面版**是基于 Electron 的独立应用（非 VS Code 内核），不支持 VSIX 扩展。ZCode 用户请用**方式一** + 插件市场安装（v1.5.9，见上）与下文「仪表盘的三种浏览方式」。
 
 ### 方式三：手动安装（保留）
 
@@ -144,11 +160,12 @@ start.cmd          :: 或 node proxy.mjs
 |---|---|---|---|
 | **完整页** | `http://127.0.0.1:8787/` | 全部功能：KPI、图表、排行、最近请求、3 档性能模式、服务商切换 | 桌面浏览器 |
 | **小窗** | `/?layout=window` 或双击 `open-window.cmd` | KPI + 图表（隐藏长表格） | 悬浮窗 / 分屏 |
-| **底部横条** | `/?layout=panel` 或双击 `open-panel.cmd` | 超紧凑 KPI 横条（整页高约 220px，走 lite 精简载荷） | 贴边停靠 / 常驻 |
+| **底部横条（吸附弹窗）** | `/?layout=panel`、双击 `open-panel.cmd`、`/sfm` 命令或 `--panel` | 超紧凑 KPI 横条 + 「⤢ 全量显示」按钮（整页高约 220px，走 lite 精简载荷） | 贴边停靠 / 常驻 |
 
 - `open-window.cmd`：用 Chrome/Edge `--app` 无边框窗口打开小窗；`open-panel.cmd`：打开小尺寸底栏窗口。
-- 嵌入模式下右上角「↗ 浏览器页」一键跳出独立浏览器页面；完整页则提供「小窗」「底栏」两个嵌入入口。
-- **在 ZCode 内**：ZCode 插件机制（plugin.json）提供 MCP/skills/commands/hooks，无客户端 UI 挂载点，因此用上述三种浏览器入口 + MCP 对话查询组合使用；可将 `zcode/command-sfm.md` 放入 ZCode 自定义命令获得 `/sfm` 快捷指令。
+- 由 MCP `open_monitor_panel` 或 `--panel` 拉起的底栏窗口会按主屏分辨率**自动停靠底部居中**，重复调用只聚焦不重开。
+- 嵌入模式下右上角「↗ 浏览器页」一键跳出独立浏览器页面；底栏（吸附弹窗）则在标题栏提供「⤢ 全量显示」独立页入口；完整页提供「小窗」「底栏」两个嵌入入口。
+- **在 ZCode 内（v1.5.9 吸附弹窗）**：安装插件市场中的 stepfun-usage-monitor 插件后，对 Agent 说「看看 token 用量」或输入 `/sfm`，即会在屏幕底部拉起吸附弹窗（`?layout=panel`，自动停靠）；弹窗内点「⤢ 全量显示」打开独立浏览器完整页。也可用 MCP 工具 `open_monitor_panel(mode="panel"\|"full")` 或命令行 `node bin/cli.mjs --panel [full]` 直接拉起。
 - **在 VS Code 系 IDE 内**：安装方式二的扩展后，底边栏面板 / 小窗 / 浏览器三模式开箱即用。
 
 ## 界面交互性能与性能档位（v1.4.0）
@@ -246,7 +263,7 @@ start.cmd          :: 或 node proxy.mjs
 
 手动安装等价写法：`"command": "node", "args": ["<本目录绝对路径>\\mcp-server.mjs"]`。
 
-之后即可在对话中直接问：「查一下我最近 7 天的 StepFun token 用量，按模型分组」——Agent 会调用 `query_stepfun_usage(days=7, group="model")` 工具返回统计。v1.5.5 起 `group` 还支持 `"provider"`（按服务商分组）。
+之后即可在对话中直接问：「查一下我最近 7 天的 StepFun token 用量，按模型分组」——Agent 会调用 `query_stepfun_usage(days=7, group="model")` 工具返回统计。v1.5.5 起 `group` 还支持 `"provider"`（按服务商分组）。v1.5.9 起还可让 Agent 调用 `open_monitor_panel(mode="panel"|"full")` 直接拉起屏幕底部吸附弹窗或独立浏览器完整页（代理未运行会自动拉起）。
 
 ## 环境变量（均可选）
 
@@ -312,17 +329,22 @@ stepfun-usage-monitor/
 ├─ lib/paths.mjs       数据目录解析（npx 直载 / 手动安装统一规则）
 ├─ lib/providers.mjs   多服务商注册表与四级路由（v1.5.5）
 ├─ lib/replay-worker.mjs  历史并行回放 worker（worker_threads）
-├─ dashboard.html      仪表盘页面（纯本地，无任何 CDN 外链；支持 ?layout= 三种布局 + 服务商切换器）
-├─ mcp-server.mjs      MCP Server：Agent 对话式查询用量
+├─ lib/open-panel.mjs  吸附弹窗 / 独立浏览器页拉起器（v1.5.9；MCP open_monitor_panel 与 --panel 共用）
+├─ dashboard.html      仪表盘页面（纯本地，无任何 CDN 外链；支持 ?layout= 三种布局 + 服务商切换器 + 底栏「全量显示」按钮）
+├─ mcp-server.mjs      MCP Server：Agent 对话式查询用量 + 拉起吸附弹窗（v1.5.9）
 ├─ stats.mjs           终端报表：node stats.mjs [天数]
 ├─ start.cmd           一键启动（Windows 双击即可）
 ├─ open-window.cmd     小窗启动器（Chrome/Edge --app 无边框窗口）
 ├─ open-panel.cmd      底部横条启动器
-├─ zcode/command-sfm.md  ZCode 自定义命令（/sfm 快捷查询）
+├─ marketplace.json    ZCode 插件市场清单（v1.5.9）
+├─ plugins/stepfun-usage-monitor/   ZCode 官方插件目录（v1.5.9）
+│  ├─ .zcode-plugin/plugin.json  插件清单（name/version/commands/mcpServers…）
+│  ├─ commands/sfm.md            标准命令（/sfm：查询用量 + 拉起吸附弹窗）
+│  └─ .mcp.json                  stdio MCP 服务器定义（${CLAUDE_PLUGIN_ROOT}）
 ├─ ide-extension/      VS Code 系扩展（底边栏/小窗/浏览器三模式 + 状态栏）
 │  ├─ package.json / extension.js / media/chart.svg
-│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.5.vsix
-│  └─ dist/stepfun-monitor-1.5.5.vsix  可直接安装
+│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.9.vsix
+│  └─ dist/stepfun-monitor-1.5.9.vsix  可直接安装
 ├─ docs/releases/      各版本双语 Release Notes（中文 + English）
 ├─ data/usage.jsonl    用量明细（追加写，首次运行自动创建；手动安装默认位置）
 ├─ data/aggregate.json 聚合快照（自动生成，可删除）
@@ -335,10 +357,10 @@ stepfun-usage-monitor/
    ├─ verify-ui.mjs        仪表盘 / CLI 报表校验
    ├─ ui-perf-check.mjs    v1.4.0 交互性能 / 3 档性能模式的静态断言与载荷实测
    ├─ ui-feature-check.mjs v1.3.0 鹈鹕测试一键复制的静态断言
-   ├─ v15-check.mjs        v1.5.5 多服务商/直载/布局/扩展/数据目录断言（76 项静态+运行时）
+   ├─ v15-check.mjs        v1.5.9 多服务商/直载/布局/扩展/数据目录/ZCode 插件结构/吸附弹窗断言（静态+运行时）
    ├─ npm-pack-check.mjs   v1.5.0 npx 直载链路验证（npm pack → 安装 → 双模式运行，15 项）
    ├─ build-vsix.mjs       零依赖 VSIX 打包（ZIP 写入 + CRC32 + 自校验）
-   ├─ browser-smoke.mjs    真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，含三种布局/三档性能/服务商切换，60 项）
+   ├─ browser-smoke.mjs    真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，含三种布局/三档性能/服务商切换/底栏全量显示按钮）
    ├─ replay-parity.mjs    并行回放 vs 顺序回放一致性校验
    ├─ bench.mjs            性能基准（冷启动 / 内存 / 并发，输出 bench-result.txt）
    ├─ seed-demo.mjs        生成演示数据
@@ -353,7 +375,7 @@ node test/mcp-test.mjs                :: MCP：initialize / tools/list / tools/c
 node test/verify-ui.mjs               :: 仪表盘可访问性与 CLI 报表格式
 node test/ui-perf-check.mjs           :: 3 档性能模式、等待动画、lite 精简载荷断言
 node test/ui-feature-check.mjs        :: 鹈鹕测试一键复制的静态断言
-node test/v15-check.mjs               :: v1.5.5：多服务商路由/切换/byProvider、GitHub 直载、三种布局、扩展、数据目录（76 项静态+运行时）
+node test/v15-check.mjs               :: v1.5.9：多服务商路由/切换/byProvider、GitHub 直载、三种布局、ZCode 插件结构、吸附弹窗、扩展、数据目录（静态+运行时）
 node test/npm-pack-check.mjs          :: v1.5.0：npm pack → tarball 安装 → bin 双模式真实运行（15 项）
 node test/build-vsix.mjs              :: 构建 VSIX（ide-extension/dist/）
 node test/browser-smoke.mjs           :: 真实浏览器运行时校验，含三种布局、三档性能与服务商切换（需本机 Chrome 或 Edge）
@@ -370,6 +392,7 @@ set PORT=8787 && set DATA_DIR=demo-data && node proxy.mjs
 
 ## 常见问题
 
+- **想让 Agent 直接在屏幕底部显示用量（v1.5.9）**：安装 ZCode 插件市场中的 stepfun-usage-monitor 插件，输入 `/sfm`（或对 Agent 说「打开用量监控弹窗」）即拉起吸附弹窗；点弹窗内「⤢ 全量显示」看完整仪表盘。命令行等价写法：`node bin/cli.mjs --panel [full]`。
 - **端口被占用**：设置 `PORT=8788` 后重启，客户端 Base URL 同步修改。
 - **流式对话没统计到 tokens**：确认未设置 `DISABLE_USAGE_INJECT=1`；个别极老客户端自行剥离了 `stream_options`，可在客户端设置里开启「统计用量/usage」类选项。
 - **想同时统计其他服务商（GLM / DeepSeek / Kimi…）**：无需再起第二个实例——在仪表盘顶栏切换器一键切换激活服务商；或按请求用 `/p/<key>/v1/...` 路径前缀、`X-Provider: <key>` 请求头路由；也可在 `providers.json` 里添加自定义网关。详见「多服务商支持」。

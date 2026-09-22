@@ -1,7 +1,7 @@
 {
   "name": "stepfun-usage-monitor",
-  "version": "1.5.5",
-  "description": "大模型 API Token 用量本地监控代理（多服务商）：零依赖、低开销、数据全本地，内置轻量/进阶/极致 3 档性能模式，支持 npx 从 GitHub URL 直载，兼容任意 OpenAI 兼容 Agent（ZCode/Cline/Continue/Cherry Studio 等）",
+  "version": "1.5.9",
+  "description": "大模型 API Token 用量本地监控代理（多服务商）：零依赖、低开销、数据全本地，内置轻量/进阶/极致 3 档性能模式，支持 npx 从 GitHub URL 直载，兼容任意 OpenAI 兼容 Agent（ZCode/Cline/Continue/Cherry Studio 等）；v1.5.9 起适配 ZCode 官方插件市场结构并提供 Agent 页面吸附弹窗",
   "type": "module",
   "main": "proxy.mjs",
   "bin": {
@@ -14,10 +14,11 @@
     "dashboard.html",
     "bin/",
     "lib/",
+    "marketplace.json",
+    "plugins/",
     "start.cmd",
     "open-window.cmd",
     "open-panel.cmd",
-    "zcode/",
     "ide-extension/README.md",
     "README.md",
     "README.en.md",

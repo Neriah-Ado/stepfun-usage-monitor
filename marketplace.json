@@ -1,0 +1,22 @@
+{
+  "name": "stepfun-usage-monitor-market",
+  "description": "StepFun / 多服务商 API Token 用量本地监控插件市场：MCP 对话查询 + 屏幕底部吸附弹窗 + 独立浏览器完整仪表盘（零依赖、数据全本地）",
+  "plugins": [
+    {
+      "name": "stepfun-usage-monitor",
+      "source": "./plugins/stepfun-usage-monitor",
+      "version": "1.5.9",
+      "category": "monitoring",
+      "tags": [
+        "stepfun",
+        "token",
+        "usage",
+        "monitor",
+        "mcp",
+        "llm",
+        "openai-compatible",
+        "local-first"
+      ]
+    }
+  ]
+}
