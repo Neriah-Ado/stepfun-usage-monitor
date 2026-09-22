@@ -3,20 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>StepFun Token 用量监控</title>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--ink:#1f2329;--muted:#8a919f;--line:#ebedf0;--p:#5b7cfa;--c:#2fb8a6;--warn:#e2574c;--ok:#2fb86a}
 *{box-sizing:border-box;margin:0;padding:0}
+/* 必须置于所有组件样式之前语义之上：ID/类选择器设置的 display 会盖掉 UA 的 [hidden]{display:none}，
+   导致 hidden 元素仍占位（v1.4.0 轻量档图表面板曾因此留下大片空白）。 */
+[hidden]{display:none!important}
 body{font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);padding:24px 16px}
 .wrap{max-width:1080px;margin:0 auto}
 h1{font-size:20px}
 .sub{color:var(--muted);font-size:12px;margin:4px 0 20px}
+
+/* ---------- 布局基元（v1.4.0 统一加 contain，减少重排范围） ---------- */
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;contain:content}
 .card .k{font-size:12px;color:var(--muted)}
-.card .v{font-size:24px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+.card .v{font-size:24px;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums;border-radius:6px}
 .card .v small{font-size:12px;font-weight:400;color:var(--muted)}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px;contain:content}
 .panel h2{font-size:14px;margin-bottom:12px;font-weight:600}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -25,7 +31,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 tr:last-child td{border-bottom:none}
 .num{text-align:right;font-variant-numeric:tabular-nums}
 .bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:3px;min-width:60px}
-.bar i{display:block;height:100%;background:var(--p)}
+.bar i{display:block;height:100%;background:var(--p);transition:width .35s ease}
 .bar.c i{background:var(--c)}
 .pill{display:inline-block;padding:0 6px;border-radius:4px;font-size:12px;background:#eef1f6}
 .pill.ok{background:#e6f6ee;color:var(--ok)}
@@ -35,7 +41,60 @@ tr:last-child td{border-bottom:none}
 .off code{background:#eef1f6;padding:2px 6px;border-radius:4px}
 .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:8px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-/* 鹈鹕测试提示（v1.3.0）：位于 #app 之外，不受自动刷新重绘影响 */
+#chart-svg{width:100%;height:auto;display:block}
+.chart-text{font-size:13px;color:#4b5563;line-height:1.7}
+#p-recent{content-visibility:auto;contain-intrinsic-size:auto 360px}
+
+/* ---------- 性能档位切换（v1.4.0，位于 #app 之外，不受重绘影响） ---------- */
+.perf{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+.perf>.t{font-size:12px;color:var(--muted)}
+.seg{display:inline-flex;background:#eef1f6;border:1px solid var(--line);border-radius:9px;padding:2px}
+.seg button{border:0;background:transparent;color:var(--muted);font:13px/1 inherit;padding:8px 14px;border-radius:7px;cursor:pointer;min-height:34px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .15s,color .15s}
+.seg button[aria-pressed="true"]{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(31,35,41,.12)}
+.perf .desc{font-size:12px;color:var(--muted)}
+.sync{display:none;align-items:center;gap:6px;font-size:12px;color:var(--p)}
+body.busy .sync{display:inline-flex}
+
+/* ---------- 等待动画（v1.4.0） ---------- */
+.progress{position:fixed;left:0;top:0;height:2px;width:100%;z-index:1000;pointer-events:none;opacity:0;transition:opacity .2s}
+.progress.on{opacity:1}
+.progress i{display:block;height:100%;width:36%;border-radius:2px;background:linear-gradient(90deg,#5b7cfa,#2fb8a6);animation:slide 1.05s ease-in-out infinite}
+@keyframes slide{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}
+.spin{width:12px;height:12px;border:2px solid #cfd6e4;border-top-color:var(--p);border-radius:50%;display:inline-block;animation:spin .7s linear infinite;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#app.loading .v{color:transparent;background:linear-gradient(90deg,#eef1f6 25%,#e3e8f1 37%,#eef1f6 63%);background-size:400% 100%;animation:shimmer 1.3s linear infinite}
+@keyframes shimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+html[data-perf="lite"] #app.loading .v{background:#eef1f6;animation:none}
+
+/* ---------- 极致模式专属动效 ---------- */
+html[data-perf="ultra"] .cards .card{animation:rise .42s cubic-bezier(.2,.7,.3,1) backwards}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}}
+html[data-perf="ultra"] .panel{animation:rise .42s cubic-bezier(.2,.7,.3,1) backwards}
+html[data-perf="ultra"] .flash{animation:flash .72s ease-out}
+@keyframes flash{0%{background:rgba(91,124,250,.20)}100%{background:transparent}}
+html[data-perf="ultra"] .panel,html[data-perf="ultra"] .card{border-color:#e6eaf2}
+
+/* ---------- 轻量模式：关闭一切动画 / 过渡 / 阴影 / 渐变，最小化重绘 ---------- */
+html[data-perf="lite"] *,html[data-perf="lite"] *::before,html[data-perf="lite"] *::after{
+  animation-duration:.001s!important;animation-iteration-count:1!important;animation-delay:0s!important;
+  transition:none!important;box-shadow:none!important;text-shadow:none!important;
+}
+html[data-perf="lite"] .progress{display:none}
+html[data-perf="lite"] .seg button[aria-pressed="true"]{background:var(--p);color:#fff}
+html[data-perf="lite"] .bar i{transition:none}
+html[data-perf="lite"] .sync .spin{animation:none;border-top-color:var(--muted)}
+
+/* 系统级「减少动态效果」优先：即使用户选了极致档也关闭动效 */
+@media(prefers-reduced-motion:reduce){
+  html[data-perf="ultra"] .cards .card,html[data-perf="ultra"] .panel{animation:none!important}
+  html[data-perf="ultra"] .flash{animation:none!important}
+  .bar i{transition:none!important}
+  #app.loading .v{animation:none!important;background:#eef1f6}
+  .progress i{animation:none!important;width:100%}
+  .spin{animation:none!important}
+}
+
+/* ---------- 鹈鹕测试提示（v1.3.0）：位于 #app 之外，不受自动刷新重绘影响 ---------- */
 .hint-panel{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--card);border:1px dashed #c9d2e3;border-radius:10px;padding:10px 14px;margin-bottom:16px}
 .hint-panel .t{font-size:12px;color:var(--muted);flex-basis:100%}
 @media(min-width:761px){.hint-panel .t{flex-basis:auto}}
@@ -46,17 +105,38 @@ tr:last-child td{border-bottom:none}
 .hint-btn:hover{background:#4a6ce8}
 .hint-btn:active{transform:scale(.97)}
 .hint-btn.ok{background:var(--ok)}
+.btn-ghost{background:#fff;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:0 12px;font:13px/1 inherit;min-height:34px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.btn-ghost:active{background:#f2f4f8}
+
+/* ---------- Toast ---------- */
 .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-10px);background:#1f2329;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:999;max-width:88vw;box-shadow:0 6px 18px rgba(0,0,0,.18);word-break:break-all}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.ok{background:#1d7a46}
 .toast.err{background:#c0392b}
+html[data-perf="lite"] .toast{transform:translateX(-50%)}
+html[data-perf="lite"] .toast.show{transform:translateX(-50%)}
+
 @media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
+<div class="progress" id="progress"><i></i></div>
 <div class="wrap">
   <h1>StepFun API Token 用量监控</h1>
-  <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥 · 每 30 秒自动刷新</div>
+
+  <div class="perf" id="perf-bar">
+    <span class="t">性能档位</span>
+    <div class="seg" role="radiogroup" aria-label="性能档位">
+      <button type="button" role="radio" data-perf="lite" aria-pressed="false" title="尽可能减少性能占用：关闭全部动效、精简数据载荷、页面隐藏时暂停轮询">轻量</button>
+      <button type="button" role="radio" data-perf="balanced" aria-pressed="true" title="完整图表与动效，30 秒刷新">进阶</button>
+      <button type="button" role="radio" data-perf="ultra" aria-pressed="false" title="10 秒刷新 + 数字滚动 / 入场 / 高亮动效">极致</button>
+    </div>
+    <span class="desc" id="perf-desc"></span>
+    <span class="sync" id="sync"><span class="spin"></span>同步中…</span>
+    <button class="btn-ghost" id="btn-refresh" type="button" title="立即刷新一次">刷新</button>
+  </div>
+
+  <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥</div>
 
   <div class="hint-panel" id="hint-panel">
     <span class="t">鹈鹕测试（Pelican Test）：用这道经典提示词检验 Agent 的绘图与代码生成能力，点击「提示」按钮或下方提示文本即可复制——</span>
@@ -64,31 +144,172 @@ tr:last-child td{border-bottom:none}
     <button class="hint-btn" id="hint-btn" type="button" title="点击复制鹈鹕测试提示词">提示</button>
   </div>
 
-  <div id="app"><div class="off">正在连接本地代理…</div></div>
+  <div id="app" class="loading"><div class="off">正在连接本地代理…</div></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script>
 'use strict';
-const $ = (s) => document.querySelector(s);
+
+/* ==================================================================
+   v1.4.0 — 交互性能与性能档位
+   1) 渲染：一次性骨架 + 原地增量更新，签名短路（数据未变 → 零 DOM 操作）
+   2) 点击：同步即时反馈（乐观 UI），异步工作全部让到事件循环之后
+   3) 等待：骨架 shimmer + 顶部进度条 + 同步指示（超 350ms 才出现，避免闪烁）
+   4) 档位：轻量 / 进阶 / 极致，localStorage 持久化，html[data-perf] 驱动 CSS
+   ================================================================== */
+
+/* ---------------- 工具 ---------------- */
+const $ = (s, r) => (r || document).querySelector(s);
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('zh-CN'));
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const shortTime = (ts) => { const d = new Date(ts); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const nowHMS = () => { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 
-function render(data) {
-  const t = data.total;
-  const today = data.byDay[data.byDay.length - 1] || { total: 0 };
-  const week = data.byDay.slice(-7).reduce((s, d) => s + (d.total || 0), 0);
+/* ---------------- 性能档位定义 ---------------- */
+const PERF_KEY = 'sfm:perf';
+const MODES = {
+  lite: {
+    key: 'lite', name: '轻量', interval: 120000, days: 14, lite: 1,
+    chart: false, rows: 5, recent: 6, anim: false, countUp: false, toastMs: 1200,
+    desc: '已关闭全部动效 · 精简数据载荷 · 120 秒刷新 · 页面隐藏即暂停',
+  },
+  balanced: {
+    key: 'balanced', name: '进阶', interval: 30000, days: 30, lite: 0,
+    chart: true, rows: 8, recent: 10, anim: true, countUp: false, toastMs: 1900,
+    desc: '完整图表 · 轻量过渡 · 30 秒刷新 · 页面隐藏自动暂停',
+  },
+  ultra: {
+    key: 'ultra', name: '极致', interval: 10000, days: 30, lite: 0,
+    chart: true, rows: 12, recent: 20, anim: true, countUp: true, toastMs: 2400,
+    desc: '10 秒刷新 · 数字滚动 · 入场与高亮动效',
+  },
+};
+let perfMode = 'balanced';
+try { const s = localStorage.getItem(PERF_KEY); if (s && MODES[s]) perfMode = s; } catch { /* 隐私模式等 */ }
+const cfg = () => MODES[perfMode];
+const REDUCED = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+const animOn = () => cfg().anim && !REDUCED;
 
-  const cards = `
-  <div class="cards">
-    <div class="card"><div class="k">累计 Tokens（全量）</div><div class="v">${fmt(t.total)}</div></div>
-    <div class="card"><div class="k">今日 Tokens</div><div class="v">${fmt(today.total || 0)}</div></div>
-    <div class="card"><div class="k">近 7 日 Tokens</div><div class="v">${fmt(week)}</div></div>
-    <div class="card"><div class="k">请求数 / 失败</div><div class="v">${fmt(t.requests)} <small>/ <span class="${t.errors ? 'err' : ''}">${fmt(t.errors)}</span></small></div></div>
-  </div>`;
+/* ---------------- 骨架（只建一次，之后全部原地更新） ---------------- */
+const SHELL = `
+<div class="cards">
+  <div class="card"><div class="k">累计 Tokens（全量）</div><div class="v" id="k-total">—</div></div>
+  <div class="card"><div class="k">今日 Tokens</div><div class="v" id="k-today">—</div></div>
+  <div class="card"><div class="k">近 7 日 Tokens</div><div class="v" id="k-week">—</div></div>
+  <div class="card"><div class="k">请求数 / 失败</div><div class="v"><span id="k-req">—</span> <small id="k-err">—</small></div></div>
+</div>
+<div class="panel" id="p-loading" hidden><span class="spin" aria-hidden="true"></span><span id="p-loading-t">正在后台加载历史数据…（服务已可用，统计会随之补齐）</span></div>
+<div class="panel" id="p-chart">
+  <h2 id="chart-title">每日 Token 用量</h2>
+  <svg id="chart-svg" viewBox="0 0 720 200" preserveAspectRatio="xMidYMid meet" role="img" aria-label="每日 Token 用量柱状图"></svg>
+  <div class="chart-text" id="chart-text" hidden></div>
+  <div class="legend" id="chart-legend"><span><i style="background:#2fb8a6"></i>输入（prompt）</span><span><i style="background:#5b7cfa"></i>输出（completion）</span></div>
+</div>
+<div class="grid2">
+  <div class="panel"><h2>模型排行</h2><table>
+    <thead><tr><th>模型</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
+    <tbody id="tb-model"></tbody></table></div>
+  <div class="panel"><h2>客户端排行（Agent）</h2><table>
+    <thead><tr><th>客户端</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
+    <tbody id="tb-agent"></tbody></table></div>
+</div>
+<div class="panel" id="p-recent"><h2>最近请求</h2><table>
+  <thead><tr><th>时间</th><th>客户端</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th><th>状态</th><th class="num">耗时</th></tr></thead>
+  <tbody id="tb-recent"></tbody></table></div>`;
 
-  // ---- 每日柱状图（SVG，输入 prompt 蓝 + 输出 completion 青） ----
-  const days = data.byDay.slice(-14);
+let mounted = false;
+let refs = {};
+function mount() {
+  const app = $('#app');
+  app.className = 'loading';
+  app.innerHTML = SHELL;
+  refs = {
+    app,
+    kTotal: $('#k-total'), kToday: $('#k-today'), kWeek: $('#k-week'), kReq: $('#k-req'), kErr: $('#k-err'),
+    pLoading: $('#p-loading'), pChart: $('#p-chart'), chartTitle: $('#chart-title'),
+    chartSvg: $('#chart-svg'), chartText: $('#chart-text'), chartLegend: $('#chart-legend'),
+    tbModel: $('#tb-model'), tbAgent: $('#tb-agent'), tbRecent: $('#tb-recent'), sub: $('#sub'),
+  };
+  lastSig = { all: '', chart: '', model: '', agent: '', recent: '' };
+  mounted = true;
+}
+
+/* ---------------- 请求状态（等待动画） ---------------- */
+let busyTimer = null;
+function beginLoad() {
+  clearTimeout(busyTimer);
+  if (perfMode === 'lite') { refs.sub && (refs.sub.dataset.busy = '1'); return; }
+  // 只有真正“卡顿”（>350ms）才显示进度条，避免快请求闪烁
+  busyTimer = setTimeout(() => {
+    document.body.classList.add('busy');
+    const pr = $('#progress'); if (pr) pr.classList.add('on');
+  }, 350);
+}
+function endLoad() {
+  clearTimeout(busyTimer);
+  document.body.classList.remove('busy');
+  const pr = $('#progress'); if (pr) pr.classList.remove('on');
+  if (refs.sub) delete refs.sub.dataset.busy;
+}
+
+/* ---------------- 原地更新工具 ---------------- */
+function setText(el, val) { if (el && el.textContent !== val) el.textContent = val; }
+/**
+ * 显示 / 隐藏。注意：SVGElement 不是 HTMLElement，**没有** hidden IDL 属性，
+ * 对 <svg> 直接写 el.hidden = true 只会挂一个 JS expando，不会落到 content 属性上，
+ * [hidden] 选择器也就不会命中（v1.4.0 轻量档图表面板曾因此留下大片空白）。
+ * 因此统一走 setAttribute/removeAttribute，并避免无变化时的属性抖动。
+ */
+function show(el, on) {
+  if (!el) return;
+  if (on) { if (el.hasAttribute('hidden')) el.removeAttribute('hidden'); }
+  else if (!el.hasAttribute('hidden')) el.setAttribute('hidden', '');
+}
+function setNum(el, val) {
+  if (!el) return;
+  const txt = fmt(val);
+  if (el.__v === val) return;                       // 无变化 → 零开销（刷新最常见的路径）
+  const old = el.__v;
+  el.__v = val;
+  if (cfg().countUp && old != null && typeof val === 'number' && val !== old && animOn()) {
+    el.__raf && cancelAnimationFrame(el.__raf);
+    const from = typeof old === 'number' ? old : 0, t0 = performance.now(), dur = 420;
+    const tick = (t) => {
+      const k = Math.min((t - t0) / dur, 1);
+      const e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmt(Math.round(from + (val - from) * e));
+      if (k < 1) el.__raf = requestAnimationFrame(tick);
+    };
+    el.__raf = requestAnimationFrame(tick);
+  } else {
+    setText(el, txt);
+  }
+  if (animOn() && old != null && old !== val) flash(el);
+}
+function flash(el) {
+  el.classList.remove('flash');
+  void el.offsetWidth;                              // 强制重排，保证动画可重放
+  el.classList.add('flash');
+  setTimeout(() => el.classList.remove('flash'), 760);
+}
+function rowsHTML(arr, key, limit) {
+  if (!arr || !arr.length) return '<tr><td colspan="5" style="color:#8a919f">暂无数据</td></tr>';
+  const top = arr.slice(0, limit);
+  const maxT = Math.max(1, ...top.map((r) => r.total));
+  return top.map((r) => `
+    <tr><td>${esc(r.name)}</td><td class="num">${fmt(r.requests)}</td>
+    <td class="num">${fmt(r.prompt)}</td><td class="num">${fmt(r.completion)}</td><td class="num"><b>${fmt(r.total)}</b>
+    <div class="bar ${key === 'm' ? '' : 'c'}"><i style="width:${(r.total / maxT * 100).toFixed(1)}%"></i></div></td></tr>`).join('');
+}
+function recentHTML(arr) {
+  if (!arr || !arr.length) return '<tr><td colspan="8" style="color:#8a919f">暂无请求</td></tr>';
+  return arr.map((r) => `<tr><td>${shortTime(r.ts)}</td><td>${esc(r.agent)}</td><td>${esc(r.model || '—')}</td>
+    <td class="num">${fmt(r.prompt_tokens)}</td><td class="num">${fmt(r.completion_tokens)}</td>
+    <td class="num"><b>${fmt(r.total_tokens)}</b></td>
+    <td><span class="pill ${r.status < 400 ? 'ok' : 'err'}">${r.status}</span></td>
+    <td class="num">${fmt(r.latency_ms)} ms</td></tr>`).join('');
+}
+function chartSVG(days) {
   const max = Math.max(1, ...days.map((d) => d.total));
   const W = 720, H = 200, padL = 56, padB = 26, padT = 10;
   const iw = (W - padL - 12) / Math.max(days.length, 1);
@@ -102,65 +323,190 @@ function render(data) {
   days.forEach((d, i) => {
     const ph = (H - padB - padT) * (d.prompt || 0) / max;
     const ch = (H - padB - padT) * (d.completion || 0) / max;
-    const x = padL + i * iw + iw * 0.18;
-    const bw = iw * 0.64;
+    const x = padL + i * iw + iw * 0.18, bw = iw * 0.64;
     const cy = H - padB - ph, py = cy - ch;
     if (d.total > 0) {
-      bars += `<rect x="${x}" y="${py}" width="${bw}" height="${ph + ch}" rx="2" fill="#5b7cfa"><title>${d.day}
-输入 ${fmt(d.prompt)} / 输出 ${fmt(d.completion)} / 共 ${fmt(d.total)}</title></rect>`;
+      bars += `<rect x="${x}" y="${py}" width="${bw}" height="${ph + ch}" rx="2" fill="#5b7cfa"><title>${d.day} 输入 ${fmt(d.prompt)} / 输出 ${fmt(d.completion)} / 共 ${fmt(d.total)}</title></rect>`;
       if (ph > 0) bars += `<rect x="${x}" y="${cy}" width="${bw}" height="${ph}" fill="#2fb8a6"/>`;
     }
     if (days.length <= 10 || i % 2 === 0) labels += `<text x="${x + bw / 2}" y="${H - 8}" font-size="10" fill="#8a919f" text-anchor="middle">${d.day.slice(5)}</text>`;
   });
-  const chart = `
-  <div class="panel">
-    <h2>每日 Token 用量（最近 ${days.length} 天）</h2>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${grid}${bars}${labels}</svg>
-    <div class="legend"><span><i style="background:#2fb8a6"></i>输入（prompt）</span><span><i style="background:#5b7cfa"></i>输出（completion）</span></div>
-  </div>`;
+  return grid + bars + labels;
+}
 
-  const rows = (arr, key) => {
-    const maxT = Math.max(1, ...arr.map((r) => r.total));
-    return arr.slice(0, 8).map((r) => `
-      <tr><td>${esc(r.name)}</td><td class="num">${fmt(r.requests)}</td>
-      <td class="num">${fmt(r.prompt)}</td><td class="num">${fmt(r.completion)}</td><td class="num"><b>${fmt(r.total)}</b>
-      <div class="bar ${key === 'm' ? '' : 'c'}"><i style="width:${(r.total / maxT * 100).toFixed(1)}%"></i></div></td></tr>`).join('');
-  };
-  const noData = (msg) => `<tr><td colspan="5" style="color:#8a919f">${msg}</td></tr>`;
+/* ---------------- 渲染主循环 ---------------- */
+let lastSig = { all: '', chart: '', model: '', agent: '', recent: '' };
+let lastUpdated = 0;
 
-  const rank = `
-  <div class="grid2">
-    <div class="panel"><h2>模型排行</h2><table>
-      <tr><th>模型</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr>
-      ${data.byModel.length ? rows(data.byModel, 'm') : noData('暂无数据')}</table></div>
-    <div class="panel"><h2>客户端排行（Agent）</h2><table>
-      <tr><th>客户端</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr>
-      ${data.byAgent.length ? rows(data.byAgent, 'a') : noData('暂无数据')}</table></div>
-  </div>`;
-
-  const recent = `
-  <div class="panel"><h2>最近请求</h2><table>
-    <tr><th>时间</th><th>客户端</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th><th>状态</th><th class="num">耗时</th></tr>
-    ${data.recent.map((r) => `<tr><td>${shortTime(r.ts)}</td><td>${esc(r.agent)}</td><td>${esc(r.model || '—')}</td>
-      <td class="num">${fmt(r.prompt_tokens)}</td><td class="num">${fmt(r.completion_tokens)}</td>
-      <td class="num"><b>${fmt(r.total_tokens)}</b></td>
-      <td><span class="pill ${r.status < 400 ? 'ok' : 'err'}">${r.status}</span></td>
-      <td class="num">${fmt(r.latency_ms)} ms</td></tr>`).join('') || '<tr><td colspan="8" style="color:#8a919f">暂无请求</td></tr>'}
-  </table></div>`;
-
+function render(data) {
+  if (!mounted) mount();
   const m = data.meta || {};
-  $('#app').innerHTML = cards + (m.loading ? '<div class="panel" style="color:#8a919f">正在后台加载历史数据…（服务已可用，统计会随之补齐）</div>' : '') + chart + rank + recent;
+  const t = data.total || {};
+  const byDay = data.byDay || [];
+  const today = byDay[byDay.length - 1] || { total: 0 };
+  const week = byDay.slice(-7).reduce((s, d) => s + (d.total || 0), 0);
+
+  // 整体签名短路：数据完全未变 → 只更新时间戳，不做任何 DOM 写入
+  const sigAll = `${m.requests}|${t.total}|${t.errors}|${byDay.length}|${byDay.reduce((s, d) => s + d.total, 0)}|${data.recent && data.recent[0] ? data.recent[0].ts : ''}|${perfMode}`;
+  if (sigAll === lastSig.all) { writeSub(m); return; }
+  lastSig.all = sigAll;
+
+  // KPI 卡片（原地写值；无变化时 setNum 直接 return）
+  setNum(refs.kTotal, t.total || 0);
+  setNum(refs.kToday, today.total || 0);
+  setNum(refs.kWeek, week);
+  setNum(refs.kReq, t.requests || 0);
+  const errTxt = '/ ' + fmt(t.errors || 0);
+  if (refs.kErr) {
+    if (refs.kErr.textContent !== errTxt) {
+      refs.kErr.textContent = errTxt;
+      if (animOn()) flash(refs.kErr);
+    }
+    refs.kErr.className = t.errors ? 'err' : '';
+  }
+
+  // 后台加载提示：只切 hidden，绝不重建节点
+  show(refs.pLoading, !!m.loading);
+
+  // 图表：仅当序列变化时重算（SVG 字符串构造是主要 CPU 开销之一）
+  const days = byDay.slice(-14);
+  const sigChart = days.map((d) => d.total).join(',');
+  if (cfg().chart) {
+    show(refs.chartSvg, true); show(refs.chartText, false); show(refs.chartLegend, true);
+    if (sigChart !== lastSig.chart) {
+      refs.chartSvg.innerHTML = chartSVG(days);
+      lastSig.chart = sigChart;
+    }
+    setText(refs.chartTitle, `每日 Token 用量（最近 ${days.length} 天）`);
+  } else {
+    // 轻量模式：不做 SVG 绘制，仅文字摘要
+    show(refs.chartSvg, false); show(refs.chartLegend, false); show(refs.chartText, true);
+    if (sigChart !== lastSig.chart) {
+      const l7 = days.slice(-7).reduce((s, d) => s + d.total, 0);
+      const p7 = days.slice(-14, -7).reduce((s, d) => s + d.total, 0);
+      const delta = p7 ? Math.round((l7 - p7) / p7 * 100) : null;
+      let peak = -1, peakDay = '—';
+      for (const d of days) if (d.total > peak) { peak = d.total; peakDay = d.day; }
+      refs.chartText.textContent = `近 7 日合计 ${fmt(l7)} Tokens`
+        + (delta == null ? '' : `（较前 7 日 ${delta >= 0 ? '+' : ''}${delta}%）`)
+        + `；单日峰值 ${fmt(Math.max(peak, 0))}（${peakDay}）。轻量模式已省略图表绘制。`;
+      lastSig.chart = sigChart;
+    }
+    setText(refs.chartTitle, `用量摘要（最近 ${days.length} 天）`);
+  }
+
+  // 排行表：按表签名分别短路
+  const byModel = data.byModel || [], byAgent = data.byAgent || [];
+  const sigM = byModel.slice(0, cfg().rows).map((r) => r.name + r.total).join('|');
+  const sigA = byAgent.slice(0, cfg().rows).map((r) => r.name + r.total).join('|');
+  if (sigM !== lastSig.model) { refs.tbModel.innerHTML = rowsHTML(byModel, 'm', cfg().rows); lastSig.model = sigM; }
+  if (sigA !== lastSig.agent) { refs.tbAgent.innerHTML = rowsHTML(byAgent, 'a', cfg().rows); lastSig.agent = sigA; }
+
+  const recent = (data.recent || []).slice(0, cfg().recent);
+  const sigR = recent.map((r) => r.ts + r.total_tokens).join('|');
+  if (sigR !== lastSig.recent) { refs.tbRecent.innerHTML = recentHTML(recent); lastSig.recent = sigR; }
+
+  refs.app.classList.remove('loading');
+  lastUpdated = Date.now();
+  writeSub(m);
+}
+function writeSub(m) {
+  if (!refs.sub) return;
   const perf = `v${m.version || '—'} · 内存 ${m.memoryMB || 0}MB · 在用连接 ${m.sockets || 0} · 运行 ${m.uptimeSec || 0}s`;
-  $('#sub').textContent = `上游 ${m.target || '—'} · 请求 ${fmt(m.requests)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · ${perf} · 每 30 秒自动刷新`;
+  const when = lastUpdated ? ` · 更新于 ${nowHMS()}` : '';
+  const mode = perfMode === 'lite' ? ' · 轮询 120s（隐藏即暂停）' : ` · 轮询 ${cfg().interval / 1000}s（隐藏即暂停）`;
+  const txt = `上游 ${m.target || '—'} · 请求 ${fmt(m.requests)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · ${perf}${mode}${when}`;
+  if (refs.sub.textContent !== txt) refs.sub.textContent = txt;
 }
 
-function load() {
-  fetch('/api/stats?days=30').then((r) => r.json()).then(render).catch(() => {
-    $('#app').innerHTML = '<div class="off">无法连接本地代理。<br>请先双击 <code>start.cmd</code> 启动代理后再打开本页面。</div>';
-  });
+/* ---------------- 数据加载（setTimeout 链，避免堆叠与并发） ---------------- */
+let pollTimer = null, inflight = false, mountedOnce = false;
+function schedule(ms) {
+  clearTimeout(pollTimer);
+  if (document.hidden) return;                        // 页面隐藏 → 不发请求（省电省 CPU）
+  pollTimer = setTimeout(load, ms == null ? cfg().interval : ms);
 }
-load();
-setInterval(load, 30000);
+async function load(force) {
+  if (inflight) return;                               // 单飞：避免并发请求互相拖慢
+  if (!force && navigator.onLine === false) { schedule(15000); return; }
+  inflight = true;
+  beginLoad();
+  const c = cfg();
+  const url = `/api/stats?days=${c.days}` + (c.lite ? '&lite=1' : '');
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    // 让出一次事件循环再渲染，保证点击等交互优先响应
+    if (window.requestAnimationFrame) requestAnimationFrame(() => { render(data); mountedOnce = true; });
+    else { render(data); mountedOnce = true; }
+  } catch (e) {
+    if (!mountedOnce) {
+      if (!mounted) mount();
+      refs.app.classList.remove('loading');
+      refs.app.innerHTML = '<div class="off">无法连接本地代理。<br>请先双击 <code>start.cmd</code> 启动代理后再打开本页面。</div>';
+      mounted = false;
+    } else {
+      showToast('刷新失败：' + ((e && e.message) || '网络错误'), 'err');
+    }
+  } finally {
+    inflight = false;
+    endLoad();
+    schedule();
+  }
+}
+
+/* ---------------- 页面可见性：隐藏即暂停、回到前台立刻补一次 ---------------- */
+function onVisibility() {
+  if (document.hidden) { clearTimeout(pollTimer); }
+  else {
+    const stale = Date.now() - lastUpdated;
+    if (!mountedOnce || stale > Math.min(cfg().interval, 20000)) load();
+    else schedule();
+  }
+}
+document.addEventListener('visibilitychange', onVisibility);
+window.addEventListener('online', () => load());
+window.addEventListener('offline', () => { showToast('网络已断开，已暂停刷新', 'err'); clearTimeout(pollTimer); });
+
+/* ---------------- 性能档位切换（同步即时生效） ---------------- */
+function applyMode(mode, persist, silent) {
+  perfMode = MODES[mode] ? mode : 'balanced';
+  if (persist !== false) { try { localStorage.setItem(PERF_KEY, perfMode); } catch { /* ignore */ } }
+  document.documentElement.dataset.perf = perfMode;   // 同步写属性 → CSS 立即生效，零延迟
+  const bar = $('#perf-bar');
+  bar && bar.querySelectorAll('button[data-perf]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.perf === perfMode)));
+  setText($('#perf-desc'), cfg().desc);
+  if (mounted) {                                      // 重置签名，强制按新档位重绘一次
+    lastSig = { all: '', chart: '', model: '', agent: '', recent: '' };
+    if (!cfg().chart) refs.chartSvg.innerHTML = '';   // 轻量模式不保留 SVG 节点内容
+  }
+  if (silent) return;
+  clearTimeout(pollTimer);
+  schedule(0);                                        // 让出当前帧后再拉数据
+}
+$('#perf-bar').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-perf]');
+  if (btn) applyMode(btn.dataset.perf);
+});
+$('#perf-bar').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const keys = Object.keys(MODES);
+  const i = keys.indexOf(perfMode);
+  const n = e.key === 'ArrowRight' ? (i + 1) % keys.length : (i - 1 + keys.length) % keys.length;
+  applyMode(keys[n]);
+  const btn = $(`button[data-perf="${keys[n]}"]`); btn && btn.focus();
+  e.preventDefault();
+});
+$('#btn-refresh').addEventListener('click', () => {
+  if (!mounted) mount();
+  load(true);
+});
+
+/* ---------------- 启动 ---------------- */
+mount();
+document.documentElement.dataset.perf = perfMode;
+applyMode(perfMode, false, true);   // 静默应用档位（不触发请求）
 
 /* ==================== 鹈鹕测试：一键复制提示词（v1.3.0） ==================== */
 const PELICAN_PROMPT = '画一只骑自行车的鹈鹕';
@@ -172,7 +518,7 @@ function showToast(msg, type) {
   t.textContent = msg;
   t.className = 'toast show ' + (type === 'err' ? 'err' : 'ok');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = 'toast'; }, 2400);
+  toastTimer = setTimeout(() => { t.className = 'toast'; }, cfg().toastMs);
 }
 
 /** 传统回退：隐藏 textarea + execCommand（兼容非 HTTPS / 旧 WebView） */
@@ -194,20 +540,24 @@ function copyFallback(text) {
   if (!ok) throw new Error('浏览器未授权剪贴板访问');
 }
 
-async function copyPelicanPrompt() {
-  try {
+/** 点击即时反馈 → 再执行异步复制（把感知延迟压到 0） */
+function copyPelicanPrompt() {
+  const btn = document.getElementById('hint-btn');
+  if (btn) { btn.classList.add('ok'); }               // 同步反馈，先于任何 await
+  clearTimeout(copyPelicanPrompt._btnTimer);
+  copyPelicanPrompt._btnTimer = setTimeout(() => btn && btn.classList.remove('ok'), cfg().toastMs);
+  showToast('已复制：' + PELICAN_PROMPT, 'ok');
+
+  const work = () => {
     if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
-      await navigator.clipboard.writeText(PELICAN_PROMPT);
-    } else {
-      copyFallback(PELICAN_PROMPT);
+      return navigator.clipboard.writeText(PELICAN_PROMPT).catch((e) => { copyFallback(PELICAN_PROMPT); return e && null; });
     }
-    showToast('已复制：' + PELICAN_PROMPT, 'ok');
-    const btn = document.getElementById('hint-btn');
-    if (btn) {
-      btn.classList.add('ok');
-      clearTimeout(copyPelicanPrompt._btnTimer);
-      copyPelicanPrompt._btnTimer = setTimeout(() => btn.classList.remove('ok'), 2400);
-    }
+    copyFallback(PELICAN_PROMPT);
+    return null;
+  };
+  try {
+    const p = work();
+    if (p && p.catch) p.catch((e) => showToast('复制失败：' + ((e && e.message) || '请手动选择文本复制'), 'err'));
   } catch (e) {
     showToast('复制失败：' + ((e && e.message) || '请手动选择文本复制'), 'err');
   }
@@ -215,6 +565,8 @@ async function copyPelicanPrompt() {
 
 document.getElementById('hint-btn').addEventListener('click', copyPelicanPrompt);
 document.getElementById('hint-chip').addEventListener('click', copyPelicanPrompt);
+
+load();
 </script>
 </body>
 </html>

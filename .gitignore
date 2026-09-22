@@ -21,6 +21,7 @@ test/parity-parallel/
 test/mock-log.txt
 test/smoke.mjs
 test/dash-inline.js
+test/shots/
 
 # 本地专用脚本（含本机绝对路径与端口，不入库）
 test/publish*.mjs
@@ -28,6 +29,8 @@ test/prep*.mjs
 test/net-diag*.mjs
 test/verify-publish.mjs
 test/final-status.mjs
+test/final-verify.mjs
+test/version-check.mjs
 test/release-notes*.md
 
 # 操作系统

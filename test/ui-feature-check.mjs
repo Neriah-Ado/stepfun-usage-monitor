@@ -42,7 +42,7 @@ const checks = [
   ['提示面板位于 #app 之外（自动刷新不重建）', html.indexOf('id="hint-panel"') < html.indexOf('id="app"') && !/id="app"[\s\S]*id="hint-panel"/.test(html)],
   ['移动端适配（≥40px 触控目标 + touch-action + tap-highlight）', /min-height:40px/.test(html) && /touch-action:manipulation/.test(html) && /-webkit-tap-highlight-color:transparent/.test(html)],
   ['user-select:none 防长按选中', /user-select:none/.test(html)],
-  ['自动刷新逻辑未被改动', /setInterval\(load, 30000\)/.test(html)],
+  ['自动刷新逻辑（v1.4.0：改为 setTimeout 链 + 档位化间隔，页面隐藏即暂停）', /pollTimer = setTimeout\(load/.test(html) && /const MODES = \{/.test(html) && /visibilitychange/.test(html) && !/setInterval\(load/.test(html)],
 ];
 for (const [name, ok] of checks) OUT.push(`${ok ? 'PASS' : 'FAIL'} - ${name}`);
 

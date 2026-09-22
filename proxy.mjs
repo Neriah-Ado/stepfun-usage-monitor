@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * stepfun-usage-monitor — StepFun API Token 用量本地监控代理
- * v1.1.0 — 第一轮性能优化：冷启动 / 高内存 / 高并发
+ * v1.4.0 — 交互性能优化 + 轻量 / 进阶 / 极致 3 档性能模式
  *
  * 架构：Agent → http://127.0.0.1:<PORT>/v1/... → 本地代理 → https://api.stepfun.com/v1/...
  *
@@ -14,6 +14,8 @@
  *   [并发]   ① 上游 keepAlive 连接池 + maxSockets 限流；② /api/stats 读内存聚合，O(桶数)；
  *            ③ 消除 Array.shift 等 O(n) 操作；④ 非 JSON 响应直接 pipe；
  *            ⑤ 仅在疑似含 usage 的 SSE 帧上做 JSON.parse；⑥ 非流式请求跳过请求体解析。
+ *   [交互]   v1.4.0：/api/stats?lite=1 精简载荷（模型/客户端各 5 条、最近 6 条、至多 14 天），
+ *            供仪表盘「轻量」档位使用，减少 JSON 序列化、传输与前端解析开销。
  *
  * 环境变量：PORT / TARGET_URL / DATA_DIR / STEPFUN_API_KEY / DISABLE_USAGE_INJECT
  *          SNAPSHOT_MS(20000) / DISABLE_SNAPSHOT / RECENT_MAX(200) / MAX_SOCKETS(256)
@@ -53,7 +55,7 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -531,7 +533,7 @@ function forwardStreamed(clientReq, clientRes, opts) {
 }
 
 /* ==================== 统计查询（O(桶数)，不遍历历史） ==================== */
-function statsFor(days) {
+function statsFor(days, lite) {
   const since = Date.now() - (days - 1) * 86400000;
   const cutoff = dayKey(since);
   const series = [];
@@ -542,6 +544,9 @@ function statsFor(days) {
   }
   const sortDesc = (m) => [...m.values()].sort((x, y) => y.total - x.total);
   const windowTotal = series.reduce((s, d) => s + d.total, 0);
+  // v1.4.0：lite=1 精简载荷（前端「轻量」档位使用）——减少 JSON.stringify 与前端解析成本
+  const topN = lite ? 5 : 50;
+  const recentN = lite ? 6 : 50;
   return {
     days,
     total: {
@@ -549,14 +554,15 @@ function statsFor(days) {
       completion: totals.completion, total: totals.total, windowTotal,
     },
     byDay: series.filter((d) => d.day >= cutoff),
-    byModel: sortDesc(byModel).slice(0, 50),
-    byAgent: sortDesc(byAgent).slice(0, 50),
-    recent: recentList(50),
+    byModel: sortDesc(byModel).slice(0, topN),
+    byAgent: sortDesc(byAgent).slice(0, topN),
+    recent: recentList(recentN),
     meta: {
       target: TARGET.origin, port: PORT, version: VERSION,
       requests: totals.requests, file: LOG_FILE,
       loading, snapshot: !SNAPSHOT_OFF,
       droppedLines, recentMax: RECENT_MAX, maxSockets: MAX_SOCKETS,
+      mode: lite ? 'lite' : 'full', ts: Date.now(),
       memoryMB: Math.round(process.memoryUsage().rss / 1048576),
       uptimeSec: Math.round(process.uptime()),
       sockets: (HTTPS_AGENT.sockets ? Object.keys(HTTPS_AGENT.sockets).length : 0) + (HTTP_AGENT.sockets ? Object.keys(HTTP_AGENT.sockets).length : 0),
@@ -590,9 +596,13 @@ const server = http.createServer(async (req, res) => {
     return res.end(buf);
   }
   if (url === '/healthz') return sendJson(res, 200, { ok: true, version: VERSION, loading, records: totals.requests });
+  // 浏览器自动请求的图标：本地应答，绝不转发到上游（避免无谓的上游请求与 404 噪声）
+  if (url === '/favicon.ico' || url === '/robots.txt') { res.writeHead(204); return res.end(); }
   if (url.startsWith('/api/stats')) {
-    const days = Math.min(Math.max(parseInt(new URL(url, 'http://x').searchParams.get('days') || '30', 10) || 30, 1), 365);
-    return sendJson(res, 200, statsFor(days));
+    const q = new URL(url, 'http://x').searchParams;
+    const days = Math.min(Math.max(parseInt(q.get('days') || '30', 10) || 30, 1), 365);
+    const lite = q.get('lite') === '1';                // v1.4.0：精简载荷
+    return sendJson(res, 200, statsFor(lite ? Math.min(days, 14) : days, lite));
   }
   if (url.startsWith('/api/logs')) {
     const q = new URL(url, 'http://x').searchParams;

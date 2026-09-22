@@ -22,6 +22,31 @@
 - **低开销**：Node 单进程、流式响应逐块直通（旁路扫描 usage，不缓冲不落盘中间数据），无数据库、无 Electron、无后台轮询。
 - **全本地**：用量逐条追加写入 `data/usage.jsonl`（每行一条 JSON，崩溃安全）；聚合快照 `data/aggregate.json` 仅含统计数字，不含密钥与请求正文。
 
+## 界面交互性能与性能档位（v1.4.0）
+
+仪表盘提供 **轻量 / 进阶 / 极致** 三档性能模式（档位栏位于自动刷新区域之外，选择持久化在浏览器 `localStorage`，支持键盘 ←/→ 切换）。**轻量档以「尽可能减少性能占用」为唯一目标**。
+
+| | 轻量 | 进阶（默认） | 极致 |
+|---|---|---|---|
+| 轮询间隔 | **120 s** | 30 s | **10 s** |
+| 数据载荷 | **`?lite=1` 精简** | 完整 | 完整 |
+| 图表 | **不绘制 SVG**，仅文字摘要 | 完整柱状图 | 完整柱状图 |
+| 排行榜 / 最近请求行数 | 5 / 6 | 8 / 10 | 12 / 20 |
+| 动画 / 过渡 / 阴影 / 渐变 | **全部关闭** | 轻量过渡 | 数字滚动 + 入场 + 高亮 |
+| 页面隐藏时 | **暂停轮询** | 暂停轮询 | 暂停轮询 |
+
+轻量档的三重降载：① 前端关闭全部动画、过渡、阴影与渐变（CSS 层一次性短路，骨架屏退化为纯色块）；② 不构造 SVG 图表字符串、只输出文字摘要；③ 服务端以 `?lite=1` 只序列化 5+5+6 条记录、至多 14 天，显著降低 `JSON.stringify` 与前端解析成本。
+
+除此之外，以下优化在**所有档位**生效：
+
+- **点击零等待**：复制提示词等操作采用乐观 UI——按钮态与 Toast 同步立即呈现，异步工作后置，感知延迟为 0。
+- **数据未变化时零 DOM 操作**：每次刷新做数据签名短路，轮询场景下最常见的「无新请求」路径不产生任何 DOM 写入。
+- **原地增量更新**：`#app` 只挂载一次骨架，之后仅更新变化的文本 / 条宽 / SVG，不再整段重建 DOM。
+- **让帧渲染**：数据到达后经 `requestAnimationFrame` 让出一帧再更新，交互响应优先。
+- **等待动画**：首屏骨架 shimmer；请求超过 **350ms** 才显示顶部进度条与「同步中」指示（避免快请求时闪烁）。
+- **后台零开销**：页面隐藏即清除定时器，回到前台且数据过期才补拉；`setTimeout` 链替代 `setInterval`，慢请求不堆叠。
+- **无障碍**：系统开启「减少动态效果」（`prefers-reduced-motion`）时，即使选择极致档也会关闭全部动效。
+
 ## 性能（v1.1.0 第一轮优化实测）
 
 基准环境：Windows / Node v22.12.0 / 20 万条历史（38.4 MB）/ 本机回环 mock 上游；对照组为 v1.0.1。复现命令：`npm run bench`。
@@ -144,6 +169,7 @@
 | `GET /` | 仪表盘（每日柱状图、模型/客户端排行、最近请求、内存/连接数） |
 | `GET /` 仪表盘内 | 鹈鹕测试一键复制：点击「提示」按钮或提示文本复制测试提示词（桌面/移动端均可） |
 | `GET /api/stats?days=30` | JSON 统计聚合（读内存聚合，O(桶数)） |
+| `GET /api/stats?days=14&lite=1` | **精简载荷**：模型/客户端各 5 条、最近 6 条、至多 14 天（v1.4.0 轻量档位使用） |
 | `GET /api/logs?limit=500` | 最近请求（环形缓冲，最多 `RECENT_MAX` 条） |
 | `GET /healthz` | 健康检查（含 `loading` 标记，可用于等待历史加载完成） |
 | `POST /api/snapshot` | 立即 flush 日志并落盘聚合快照 |
@@ -167,6 +193,9 @@ stepfun-usage-monitor/
    ├─ mock-upstream.mjs    模拟 StepFun 上游（支持 MOCK_DELAY 模拟推理延迟）
    ├─ mcp-test.mjs         MCP 协议一致性测试
    ├─ verify-ui.mjs        仪表盘 / CLI 报表校验
+   ├─ ui-perf-check.mjs    v1.4.0 交互性能 / 3 档性能模式的静态断言与载荷实测
+   ├─ browser-smoke.mjs    v1.4.0 真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，零依赖，附三档截图）
+   ├─ ui-feature-check.mjs v1.3.0 鹈鹕测试一键复制的静态断言
    ├─ replay-parity.mjs    并行回放 vs 顺序回放一致性校验
    ├─ bench.mjs            性能基准（冷启动 / 内存 / 并发，输出 bench-result.txt）
    ├─ seed-demo.mjs        生成演示数据
@@ -179,6 +208,9 @@ stepfun-usage-monitor/
 node test/run-e2e.mjs                 :: 端到端：非流式/流式 usage 解析、stream_options 注入与回退、密钥不入库
 node test/mcp-test.mjs                :: MCP：initialize / tools/list / tools/call / 未知方法错误码
 node test/verify-ui.mjs               :: 仪表盘可访问性与 CLI 报表格式
+node test/ui-perf-check.mjs           :: v1.4.0：3 档性能模式、等待动画、lite 精简载荷断言
+node test/browser-smoke.mjs           :: v1.4.0：真实浏览器运行时校验（需本机安装 Chrome 或 Edge）
+node test/ui-feature-check.mjs        :: v1.3.0：鹈鹕测试一键复制的静态断言
 node test/replay-parity.mjs           :: 并行回放 vs 顺序回放：聚合结果逐字段一致性
 node test/bench.mjs                   :: 性能基准（生成 20 万条数据，输出 test/bench-result.txt）
 node test/seed-demo.mjs demo-data     :: 重新生成演示数据
