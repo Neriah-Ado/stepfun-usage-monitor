@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * stepfun-usage-monitor — 大模型 API Token 用量本地监控代理（多服务商）
+ * v1.5.11 — 修复服务商 baseUrl 路径前缀丢失（GLM/Kimi/Qwen 等）+ Anthropic 协议用量解析（message.usage 嵌套读取 + 逐帧合并）
  * v1.5.10 — ZCode 插件安装后自包含（plugins/ 下 runtime/ 内置全部运行文件，.mcp.json 指向插件内 runtime 入口）
  * v1.5.9 — 适配 ZCode 官方插件市场结构（marketplace.json + .zcode-plugin/plugin.json + commands/）+ Agent 页面吸附弹窗（open_monitor_panel）
  * v1.5.5 — 多服务商支持（一键切换 GLM/DeepSeek/Kimi/MiniMax/Qwen/Yi 等）+ byProvider 统计
@@ -65,7 +66,7 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.5.10';
+const VERSION = '1.5.11';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -407,8 +408,12 @@ function sseScanner(onUsage) {
       if (payload.indexOf('"usage"') === -1 && payload.indexOf('"model"') === -1) continue;
       try {
         const obj = JSON.parse(payload);
-        if (obj && obj.usage && typeof obj.usage === 'object') onUsage(obj.usage, obj.model);
-        else if (obj && obj.model) onUsage(null, obj.model);
+        // Anthropic 的 message_start 把 usage/model 嵌在 message 内（OpenAI 与 Anthropic 终帧都在顶层）
+        const msg = obj && obj.message;
+        const u = (obj && obj.usage) || (msg && msg.usage);
+        const mdl = (obj && obj.model) || (msg && msg.model);
+        if (u && typeof u === 'object') onUsage(u, mdl);
+        else if (mdl) onUsage(null, mdl);
       } catch { /* 非法帧忽略 */ }
     }
     if (buf.length > SSE_BUF_LIMIT) buf = buf.slice(-1024);
@@ -446,11 +451,14 @@ function upstreamHeaders(srcHeaders, contentLength, provider, target) {
 
 function buildRequest(opts, headers, onResponse) {
   const target = opts.target;
+  // 服务商 baseUrl 可能自带路径前缀（如 GLM 的 /api/paas/v4、/api/anthropic）：拼在请求路径前，不能只取 origin
+  const base = (target.pathname || '').replace(/\/+$/, '');
+  const reqPath = opts.path.startsWith('/') ? opts.path : '/' + opts.path;
   return (target.protocol === 'https:' ? https : http).request({
     protocol: target.protocol,
     hostname: target.hostname,
     port: target.port || (target.protocol === 'https:' ? 443 : 80),
-    path: opts.path,
+    path: base + reqPath,
     method: opts.method,
     headers,
     agent: target.protocol === 'https:' ? HTTPS_AGENT : HTTP_AGENT,
@@ -501,15 +509,17 @@ function handleUpstreamResponse(upRes, clientReq, clientRes, opts) {
   }
 
   if (isSSE) {
-    let usage = null;
+    // Anthropic 把 usage 拆在多帧里（input_tokens 在 message_start、output_tokens 终值在 message_delta），
+    // 逐帧合并而非覆盖，否则会丢掉输入 tokens。
+    let raw = null;
     const scan = sseScanner((u, m) => {
-      if (u) usage = normalizeUsage(u, m || opts.model);
-      else if (m) opts.model = m;
+      if (u) raw = { ...(raw || {}), ...u };
+      if (m) opts.model = m;
     });
     clientRes.writeHead(status, upRes.headers);
     upRes.on('data', (c) => { scan(c); clientRes.write(c); });   // 旁路扫描 + 逐块直通，不缓冲
-    upRes.on('end', () => { clientRes.end(); finalize(opts, status, usage); });
-    upRes.on('error', () => { clientRes.end(); finalize(opts, status, usage); });
+    upRes.on('end', () => { clientRes.end(); finalize(opts, status, normalizeUsage(raw, opts.model)); });
+    upRes.on('error', () => { clientRes.end(); finalize(opts, status, normalizeUsage(raw, opts.model)); });
     return;
   }
 

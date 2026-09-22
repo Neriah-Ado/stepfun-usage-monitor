@@ -2,6 +2,18 @@
 
 > 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
 
+## v1.5.11（服务商 baseUrl 路径前缀 + Anthropic 协议用量解析）
+
+### 修复
+- **服务商 baseUrl 自带路径前缀时转发丢前缀**：`buildRequest` 只用 `hostname` + 客户端请求路径，`target.pathname` 被丢弃——GLM（`https://open.bigmodel.cn/api/paas/v4`，Anthropic 端点 `/api/anthropic`）、Kimi（`/v1`）、Qwen（`/compatible-mode/v1`）、MiniMax 等内置服务商的 baseUrl 均自带路径，经 `/p/<key>` 前缀转发时会打到 `https://<host>/<客户端路径>`（实测 GLM 被 nginx 以 405 拒绝），即这些服务商实际不可用。现把 baseUrl 的路径前缀拼在请求路径之前。**接入变更**：客户端 Base URL 只写到 `/p/<key>`（如 `http://127.0.0.1:8787/p/glm`），不要再重复写上游路径前缀。
+- **Anthropic 协议用量解析缺失（输入 tokens 记为 0）**：① Anthropic 的 `message_start` 把 usage 嵌在 `message` 对象内，SSE 扫描只读顶层 `obj.usage` → 读不到；② 流式 usage 逐帧**覆盖**而非合并，而 Anthropic 的 `input_tokens` 在首帧、`output_tokens` 终值在末帧 → 最终只剩输出 tokens。现扫描同时读 `message.usage` / `message.model`，逐帧合并后再归一化。走 `anthropic-messages` 协议的客户端（如 ZCode 的 BigModel Coding Plan）由此可正确统计全部 tokens。
+
+### 新增
+- **Anthropic 协议回归测试** `test/anthropic-usage-check.mjs`（`npm run test:anthropic`）：全本地 mock 上游，断言 baseUrl 路径前缀被补足（上游真实收到 `/api/anthropic/v1/messages`）、流式 usage（137/42/179）与非流式 usage（21/7/28）完整记账、SSE 帧原样透传、统计汇总一致、密钥不落盘，共 7 条断言；不联网、不消耗任何额度。
+
+### 版本
+- 版本号统一升级 1.5.11；VSIX 重建为 `stepfun-monitor-1.5.11.vsix`。
+
 ## v1.5.10（ZCode 插件安装后自包含）
 
 ### 修复

@@ -6,6 +6,7 @@
  *   3) 断言：默认(进阶)渲染成功 → 切轻量(图表退化/动画全关/精简载荷) → 切极致(动效开启)
  *   4) 点击「提示」按钮验证乐观 UI 反馈
  *   5) 三档各截图一张（输出到 repo 之外，供人工核对）
+ * v1.5.11：版本断言随版本升级（健康检查 / 页脚）。
  * v1.5.10：底栏（吸附弹窗）新增「⤢ 全量显示」按钮与窗口标题断言；小窗/完整页的入口可见性补测
  * 结果写入 test/browser-smoke.txt
  */
@@ -111,7 +112,7 @@ try {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const z = await waitHttp(`http://127.0.0.1:${PORT}/healthz`);
-  assert('代理就绪且版本 1.5.10', z && z.version === '1.5.10', z ? 'version=' + z.version : 'no response');
+  assert('代理就绪且版本 1.5.11', z && z.version === '1.5.11', z ? 'version=' + z.version : 'no response');
   if (!z) throw new Error('代理未就绪');
 
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-prof-'));
@@ -164,7 +165,7 @@ try {
   assert('模型排行有数据行', (await cdp.eval("document.querySelectorAll('#tb-model tr').length")) > 0);
   assert('最近请求有数据行', (await cdp.eval("document.querySelectorAll('#tb-recent tr').length")) > 0);
   const sub91 = await cdp.eval("document.querySelector('#sub').textContent");
-  assert('页脚显示 v1.5.10 与轮询间隔', sub91.includes('v1.5.10') && sub91.includes('30s'), sub91.slice(0, 90));
+  assert('页脚显示 v1.5.11 与轮询间隔', sub91.includes('v1.5.11') && sub91.includes('30s'), sub91.slice(0, 90));
   const s1 = await shot('shot-balanced.png');
   log('截图: ' + s1);
 

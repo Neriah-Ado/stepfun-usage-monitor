@@ -4,6 +4,7 @@
  *
  * 让 ZCode / Claude Code / Cline 等支持 MCP 的 Agent 直接对话查询本地 Token 用量。
  * 数据源与 proxy.mjs 相同（usage.jsonl），只读访问；数据目录解析规则见 lib/paths.mjs（v1.5.0 三入口统一）。
+ * v1.5.11：随仓库同步修复服务商 baseUrl 路径前缀与 Anthropic 协议用量解析（见 proxy.mjs）。
  * v1.5.10：ZCode 插件安装后自包含——plugins/stepfun-usage-monitor/runtime/ 内置全部运行文件，
  *          .mcp.json 通过 ${CLAUDE_PLUGIN_ROOT}/runtime/bin/cli.mjs 启动（不再引用仓库根 ../../）。
  * v1.5.9：新增 open_monitor_panel 工具——在屏幕底部拉起「吸附弹窗」（或 mode="full" 打开独立浏览器完整页），
@@ -114,7 +115,7 @@ function handleMessage(msg) {
     return {
       protocolVersion: params && params.protocolVersion ? params.protocolVersion : '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'stepfun-usage-monitor', version: '1.5.10' },
+      serverInfo: { name: 'stepfun-usage-monitor', version: '1.5.11' },
     };
   }
   if (method === 'tools/list') return { tools: TOOLS };

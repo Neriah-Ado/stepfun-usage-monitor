@@ -77,7 +77,7 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 - The first npx run downloads and caches from GitHub; afterwards startup is instant. The packaged files and the unified `bin/cli.mjs` entry are declared in `package.json`'s `bin` / `files` fields.
 - **Data directory decoupled from the npm cache**: npx runs store data under `~/.stepfun-usage-monitor/` (on Windows, `C:\Users\<you>\.stepfun-usage-monitor\`), so clearing the npm cache never loses history. Resolution order: `DATA_DIR` env var > `~/.stepfun-usage-monitor/` (used if present) > in-package `data/` (legacy data stays in place). `providers.json` lives in the same directory.
 
-**ZCode plugin marketplace install (v1.5.10, recommended)**: this repository doubles as a ZCode plugin marketplace (root `marketplace.json`). Add the repository as a plugin-marketplace source in ZCode, then install the `stepfun-usage-monitor` plugin to get:
+**ZCode plugin marketplace install (v1.5.11, recommended)**: this repository doubles as a ZCode plugin marketplace (root `marketplace.json`). Add the repository as a plugin-marketplace source in ZCode, then install the `stepfun-usage-monitor` plugin to get:
 
 - the `/sfm` command: query usage and raise a **docked popup** at the bottom of the screen in one step (ultra-compact KPI strip, ~1000×190, auto-docked bottom-center; the proxy starts automatically when not running; repeated calls only focus the existing popup);
 - the "⤢ Full Display" button inside the popup: raise the standalone browser dashboard at any time;
@@ -127,8 +127,8 @@ plugins/stepfun-usage-monitor/
 
 For VS Code and its forks (Cursor, VSCodium, …): browse the dashboard inside the IDE with a **bottom-bar panel / editor window / standalone browser**, and the proxy is pulled up automatically via `npx` from GitHub when not running (`stepfunMonitor.autoStart`, on by default).
 
-1. Download `stepfun-monitor-1.5.10.vsix` from the GitHub Release (a same-named copy lives in `ide-extension/dist/`).
-2. Install: `code --install-extension stepfun-monitor-1.5.10.vsix`, or the Extensions view → `…` → **Install from VSIX…**.
+1. Download `stepfun-monitor-1.5.11.vsix` from the GitHub Release (a same-named copy lives in `ide-extension/dist/`).
+2. Install: `code --install-extension stepfun-monitor-1.5.11.vsix`, or the Extensions view → `…` → **Install from VSIX…**.
 3. Commands in the Command Palette (Ctrl+Shift+P):
    - **StepFun Monitor: Show Bottom Bar Panel** — dashboard embedded in the bottom bar (`?layout=panel`)
    - **StepFun Monitor: Open in Window** — standalone editor window (`?layout=window`)
@@ -136,7 +136,7 @@ For VS Code and its forks (Cursor, VSCodium, …): browse the dashboard inside t
    - **StepFun Monitor: Start Local Proxy (npx from GitHub)**
 4. The status bar shows today's token consumption; the proxy address and more are configurable under `stepfunMonitor.*`.
 
-> **ZCode Desktop** is a standalone Electron app (not the VS Code kernel) and does not support VSIX extensions. ZCode users should use **Option 1** plus the plugin-marketplace install (v1.5.10, above) and the browser layouts below.
+> **ZCode Desktop** is a standalone Electron app (not the VS Code kernel) and does not support VSIX extensions. ZCode users should use **Option 1** plus the plugin-marketplace install (v1.5.11, above) and the browser layouts below.
 
 ### Option 3: Manual install (kept for compatibility)
 
@@ -355,8 +355,8 @@ stepfun-usage-monitor/
 │     └─ lib/                    paths / providers / open-panel / replay-worker
 ├─ ide-extension/      VS Code-family extension (bottom bar / window / browser + status bar)
 │  ├─ package.json / extension.js / media/chart.svg
-│  ├─ test/build-vsix.mjs builds it → dist/stepfun-monitor-1.5.10.vsix
-│  └─ dist/stepfun-monitor-1.5.10.vsix  installable as-is
+│  ├─ test/build-vsix.mjs builds it → dist/stepfun-monitor-1.5.11.vsix
+│  └─ dist/stepfun-monitor-1.5.11.vsix  installable as-is
 ├─ docs/releases/      Bilingual release notes per version (Chinese + English)
 ├─ data/usage.jsonl    Usage details (append-only, created on first run; default location for manual installs)
 ├─ data/aggregate.json Aggregate snapshot (auto-generated, deletable)
@@ -369,7 +369,8 @@ stepfun-usage-monitor/
    ├─ verify-ui.mjs        Dashboard / CLI report checks
    ├─ ui-perf-check.mjs    v1.4.0 interaction performance / 3 performance modes: static assertions + payload measurements
    ├─ ui-feature-check.mjs v1.3.0 Pelican-test one-click copy: static assertions
-   ├─ v15-check.mjs        v1.5.10 multi-provider/direct-load/layouts/extension/data-directory/ZCode-plugin-structure/docked-popup/plugin-runtime-self-containment assertions (static + runtime)
+   ├─ v15-check.mjs        v1.5.11 multi-provider/direct-load/layouts/extension/data-directory/ZCode-plugin-structure/docked-popup/plugin-runtime-self-containment assertions (static + runtime)
+   ├─ anthropic-usage-check.mjs Anthropic-protocol regression: baseUrl path prefix + streaming/non-streaming usage parsing (mock upstream, offline)
    ├─ npm-pack-check.mjs   v1.5.0 npx direct-load chain verification (npm pack → install → bin dual-mode + plugin runtime MCP run)
    ├─ build-vsix.mjs       Zero-dependency VSIX build (ZIP writing + CRC32 + read-back self-verification)
    ├─ browser-smoke.mjs    Real-browser runtime checks (CDP-driven local Chrome/Edge; three layouts, three modes, provider switcher, bottom-bar Full Display button)
@@ -387,8 +388,9 @@ node test/mcp-test.mjs                :: MCP: initialize / tools/list / tools/ca
 node test/verify-ui.mjs               :: dashboard accessibility and CLI report format
 node test/ui-perf-check.mjs           :: 3 performance modes, wait animations, lite slim payload assertions
 node test/ui-feature-check.mjs        :: Pelican-test one-click copy static assertions
-node test/v15-check.mjs               :: v1.5.10: multi-provider routing/switching/byProvider, GitHub direct load, three layouts, ZCode plugin structure, docked popup, plugin runtime self-containment, extension, data directory (static + runtime)
-node test/npm-pack-check.mjs          :: v1.5.10: npm pack → tarball install → bin dual-mode + plugin runtime MCP real run
+node test/v15-check.mjs               :: v1.5.11: multi-provider routing/switching/byProvider, GitHub direct load, three layouts, ZCode plugin structure, docked popup, plugin runtime self-containment, extension, data directory (static + runtime)
+node test/anthropic-usage-check.mjs   :: v1.5.11: Anthropic-protocol baseUrl path prefix + streaming/non-streaming usage parsing (mock upstream)
+node test/npm-pack-check.mjs          :: v1.5.11: npm pack → tarball install → bin dual-mode + plugin runtime MCP real run
 node test/build-vsix.mjs              :: build the VSIX (ide-extension/dist/)
 node test/browser-smoke.mjs           :: real-browser runtime checks incl. three layouts, three modes and the provider switcher (needs local Chrome or Edge)
 node test/replay-parity.mjs           :: parallel vs sequential replay: field-by-field aggregate consistency (run bench first)

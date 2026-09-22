@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 /**
+ * v1.5.11：版本号断言随版本升级；Anthropic 协议用量解析与服务商 baseUrl 路径前缀由
+ *          test/anthropic-usage-check.mjs 独立覆盖（npm run test:anthropic）。
  * v1.5.10 静态 + 运行时断言：多服务商 / GitHub URL 直载 / 三种嵌入布局 / VSIX 扩展 /
  * 统一数据目录 / ZCode 官方插件结构 / 吸附弹窗与全量显示按钮 / 插件安装后自包含 runtime
  * 结果写入 test/v15-check.txt
@@ -62,14 +64,14 @@ try {
   const mktRaw = exists('marketplace.json') ? R('marketplace.json') : '';
   let mkt = {}; try { mkt = JSON.parse(mktRaw); } catch { /* parse fail */ }
   assert('marketplace.json 存在且含 plugins[]', Array.isArray(mkt.plugins) && mkt.plugins.length > 0);
-  assert('marketplace.json 条目指向 ./plugins/stepfun-usage-monitor 且 version=1.5.10',
-    mkt.plugins.some((p) => p.name === 'stepfun-usage-monitor' && p.source === './plugins/stepfun-usage-monitor' && p.version === '1.5.10'));
+  assert('marketplace.json 条目指向 ./plugins/stepfun-usage-monitor 且 version=1.5.11',
+    mkt.plugins.some((p) => p.name === 'stepfun-usage-monitor' && p.source === './plugins/stepfun-usage-monitor' && p.version === '1.5.11'));
   const pluginJsonPath = 'plugins/stepfun-usage-monitor/.zcode-plugin/plugin.json';
   const pluginJsonRaw = exists(pluginJsonPath) ? R(pluginJsonPath) : '';
   let pluginJson = {}; try { pluginJson = JSON.parse(pluginJsonRaw); } catch { /* parse fail */ }
   assert('plugin.json 存在且 name 合法（^[a-z0-9][a-z0-9._-]{0,127}$）', /^[a-z0-9][a-z0-9._-]{0,127}$/.test(pluginJson.name || ''), pluginJson.name);
-  assert('plugin.json version=1.5.10 且声明 commands/mcpServers',
-    pluginJson.version === '1.5.10' && pluginJson.commands === 'commands' && pluginJson.mcpServers === '.mcp.json');
+  assert('plugin.json version=1.5.11 且声明 commands/mcpServers',
+    pluginJson.version === '1.5.11' && pluginJson.commands === 'commands' && pluginJson.mcpServers === '.mcp.json');
   assert('plugin.json 含 description_i18n（en/zh-CN，对齐官方字段）',
     !!(pluginJson.description_i18n && pluginJson.description_i18n.en && pluginJson.description_i18n['zh-CN']));
   const cmdPath = 'plugins/stepfun-usage-monitor/commands/sfm.md';
@@ -103,7 +105,7 @@ try {
   assert('bin/cli.mjs 支持 --mcp 分发', /--mcp/.test(cli) && /mcp-server\.mjs/.test(cli));
   assert('bin/cli.mjs 支持 --port / --data-dir', /--port/.test(cli) && /--data-dir/.test(cli));
   assert('bin/cli.mjs 帮助含 npx 直载示例', cli.includes('npx -y github:Neriah-Ado/stepfun-usage-monitor'));
-  assert('package.json version=1.5.10', pkg.version === '1.5.10');
+  assert('package.json version=1.5.11', pkg.version === '1.5.11');
   assert('package.json bin 指向 cli', pkg.bin && pkg.bin['stepfun-usage-monitor'] === 'bin/cli.mjs');
   assert('package.json files 含 bin/lib/plugins/marketplace.json 且不含 zcode',
     ['bin/', 'lib/', 'plugins/', 'marketplace.json'].every((f) => (pkg.files || []).includes(f)) && !(pkg.files || []).includes('zcode/'));
@@ -116,10 +118,10 @@ try {
   assert('stats.mjs 接入统一数据目录', /resolveDataDir/.test(stats));
 
   /* ===== 2. 版本一致性 ===== */
-  assert('proxy.mjs VERSION=1.5.10', /const VERSION = '1\.5\.10'/.test(proxy));
-  assert('mcp-server.mjs serverInfo 1.5.10', /version: '1\.5\.10'/.test(mcp));
-  assert('proxy.mjs 头部含 v1.5.10 说明', proxy.includes('v1.5.10'));
-  assert('ide-extension manifest version=1.5.10', /"version": "1\.5\.10"/.test(R('ide-extension/package.json')));
+  assert('proxy.mjs VERSION=1.5.11', /const VERSION = '1\.5\.11'/.test(proxy));
+  assert('mcp-server.mjs serverInfo 1.5.11', /version: '1\.5\.11'/.test(mcp));
+  assert('proxy.mjs 头部含 v1.5.11 说明', proxy.includes('v1.5.11'));
+  assert('ide-extension manifest version=1.5.11', /"version": "1\.5\.11"/.test(R('ide-extension/package.json')));
 
   /* ===== 3. 三种嵌入布局 + 底栏全量显示按钮 ===== */
   assert('仪表盘 LAYOUT 常量', /const LAYOUT = document\.documentElement\.dataset\.layout \|\| 'full'/.test(dash));
@@ -160,7 +162,7 @@ try {
   const extPkgRaw = exists('ide-extension/package.json') ? R('ide-extension/package.json') : '';
   let extPkg = {};
   try { extPkg = JSON.parse(extPkgRaw); } catch { /* parse fail */ }
-  assert('扩展 manifest version=1.5.10', extPkg.version === '1.5.10');
+  assert('扩展 manifest version=1.5.11', extPkg.version === '1.5.11');
   assert('扩展提供三种打开命令', ['openPanel', 'openWindow', 'openInBrowser'].every((c) => extPkgRaw.includes(`stepfunMonitor.${c}`)));
   assert('扩展有底边栏视图容器', extPkgRaw.includes('viewsContainers') && extPkgRaw.includes('"panel"'));
   const extJs = exists('ide-extension/extension.js') ? R('ide-extension/extension.js') : '';
@@ -169,10 +171,10 @@ try {
   assert('扩展浏览器模式用 env.openExternal', extJs.includes('env.openExternal'));
   assert('扩展 iframe 指向 layout=panel / layout=window', extJs.includes('layout=panel') && extJs.includes('layout=window'));
   assert('扩展含状态栏今日 tokens', extJs.includes('createStatusBarItem'));
-  const vsixPath = path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.10.vsix');
-  assert('VSIX 已构建且非空（1.5.10）', exists('ide-extension/dist/stepfun-monitor-1.5.10.vsix') &&
+  const vsixPath = path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.11.vsix');
+  assert('VSIX 已构建且非空（1.5.11）', exists('ide-extension/dist/stepfun-monitor-1.5.11.vsix') &&
     fs.statSync(vsixPath).size > 1000,
-    exists('ide-extension/dist/stepfun-monitor-1.5.10.vsix') ? fs.statSync(vsixPath).size + 'B' : 'missing');
+    exists('ide-extension/dist/stepfun-monitor-1.5.11.vsix') ? fs.statSync(vsixPath).size + 'B' : 'missing');
   assert('VSIX 构建器存在（零依赖）', exists('test/build-vsix.mjs'));
 
   /* ===== 6. 运行时：?layout= 由服务端原样下发（同一 HTML，前端内联脚本分流） ===== */
@@ -186,7 +188,7 @@ try {
     await sleep(250);
     try { health = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json(); } catch { /* retry */ }
   }
-  assert('运行时 /healthz version=1.5.10', !!health && health.version === '1.5.10');
+  assert('运行时 /healthz version=1.5.11', !!health && health.version === '1.5.11');
   if (health) {
     htmlPanel = await (await fetch(`http://127.0.0.1:${PORT}/?layout=panel`)).text();
     htmlFull = await (await fetch(`http://127.0.0.1:${PORT}/`)).text();
@@ -218,7 +220,7 @@ try {
   try {
     let h2 = null;
     for (let i = 0; i < 60 && !h2; i++) { await sleep(250); try { h2 = await (await fetch(`http://127.0.0.1:${PP}/healthz`)).json(); } catch { /* retry */ } }
-    assert('多服务商代理就绪', !!h2 && h2.version === '1.5.10' && h2.provider === 'stepfun');
+    assert('多服务商代理就绪', !!h2 && h2.version === '1.5.11' && h2.provider === 'stepfun');
 
     const post = async (p, body, headers) => {
       const r = await fetch(`http://127.0.0.1:${PP}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(headers || {}) }, body: JSON.stringify(body) });

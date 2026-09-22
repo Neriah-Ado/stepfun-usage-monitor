@@ -3,6 +3,7 @@
  * MCP Server 协议测试：把 JSON-RPC 报文一次性写入 stdin（EOF 后服务端退出），
  * 同步收集全部 stdout 响应并校验。结果写入 test/mcp-result.txt
  * v1.5.9：新增 open_monitor_panel 工具断言（tools/list + dryRun 调用，不真正开窗）。
+ * v1.5.11：serverInfo 版本断言随版本升级（Anthropic 用量解析见 test/anthropic-usage-check.mjs）。
  * v1.5.10：新增插件安装态 runtime MCP 断言（plugins/ 下 runtime/bin/cli.mjs --mcp，即 .mcp.json 实际入口）。
  */
 import { execFileSync } from 'node:child_process';
@@ -48,7 +49,7 @@ const assert = (cond, msg) => log(`${cond ? 'PASS' : 'FAIL'} - ${msg}`);
 
 const r1 = byId.get(1);
 assert(!!r1 && r1.result && r1.result.serverInfo && r1.result.serverInfo.name === 'stepfun-usage-monitor', 'initialize 返回 serverInfo');
-assert(!!r1 && r1.result.serverInfo && r1.result.serverInfo.version === '1.5.10', 'serverInfo.version=1.5.10');
+assert(!!r1 && r1.result.serverInfo && r1.result.serverInfo.version === '1.5.11', 'serverInfo.version=1.5.11');
 assert(r1 && r1.result.protocolVersion === '2024-11-05', '协议版本协商正确');
 
 const r2 = byId.get(2);
@@ -103,7 +104,7 @@ try {
   const rtRes = rtOut.split('\n').filter((l) => l.trim()).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
   const rtInit = rtRes.find((r) => r.id === 1);
   const rtTools = rtRes.find((r) => r.id === 2);
-  assert(!!rtInit && rtInit.result.serverInfo && rtInit.result.serverInfo.version === '1.5.10', 'runtime MCP initialize 版本 1.5.10');
+  assert(!!rtInit && rtInit.result.serverInfo && rtInit.result.serverInfo.version === '1.5.11', 'runtime MCP initialize 版本 1.5.11');
   assert(!!rtTools && rtTools.result.tools.some((t) => t.name === 'query_stepfun_usage')
     && rtTools.result.tools.some((t) => t.name === 'open_monitor_panel'), 'runtime MCP 暴露全部工具');
 } catch (e) {

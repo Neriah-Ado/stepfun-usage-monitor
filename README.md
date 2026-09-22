@@ -2,7 +2,7 @@
 
 统计 StepFun API（阶跃星辰，OpenAI 兼容接口）的 Token 用量。**零 npm 依赖、常驻内存通常 < 60MB、所有数据仅存本地**，通过「本地反向代理」方式接入，因此天然兼容几乎所有 Agent / 客户端。
 
-**v1.5.10**：ZCode 插件安装后**自包含**——`plugins/stepfun-usage-monitor/runtime/` 内置全部运行文件（与仓库根逐字节一致），修复「安装后 MCP 服务器无法启动 → `/sfm` 无法调出插件」；v1.5.9 适配 **ZCode 官方插件市场结构**（`marketplace.json` + `plugins/` 标准插件目录），新增 **Agent 页面吸附弹窗**（屏幕底部超紧凑横条，自动停靠底部居中）与弹窗内「⤢ 全量显示」独立页入口；**多服务商支持**（v1.5.5）——同一个代理实例内一键切换 StepFun / 智谱 GLM / DeepSeek / Kimi / MiniMax / 通义千问 / 零一万物等 OpenAI 兼容 API（也可自定义任意网关），用量按服务商分组统计。完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)。
+**v1.5.11**：修复**服务商 baseUrl 路径前缀被丢弃**（GLM / Kimi / Qwen / MiniMax 等带路径的内置服务商此前实际不可用）与 **Anthropic 协议用量解析缺失**（`anthropic-messages` 客户端如 ZCode 的 BigModel Coding Plan 此前输入 tokens 记为 0），新增 Anthropic 协议回归测试。**v1.5.10**：ZCode 插件安装后**自包含**——`plugins/stepfun-usage-monitor/runtime/` 内置全部运行文件（与仓库根逐字节一致），修复「安装后 MCP 服务器无法启动 → `/sfm` 无法调出插件」；v1.5.9 适配 **ZCode 官方插件市场结构**（`marketplace.json` + `plugins/` 标准插件目录），新增 **Agent 页面吸附弹窗**（屏幕底部超紧凑横条，自动停靠底部居中）与弹窗内「⤢ 全量显示」独立页入口；**多服务商支持**（v1.5.5）——同一个代理实例内一键切换 StepFun / 智谱 GLM / DeepSeek / Kimi / MiniMax / 通义千问 / 零一万物等 OpenAI 兼容 API（也可自定义任意网关），用量按服务商分组统计。完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)。
 
 > **[English README](README.en.md)** · 本文档为中文版。
 
@@ -46,12 +46,13 @@
 
 | 优先级 | 方式 | 示例 |
 |---|---|---|
-| 1 | 路径前缀 `/p/<key>/v1/...`（转发时自动剥除前缀） | `/p/deepseek/v1/chat/completions` |
+| 1 | 路径前缀 `/p/<key>/...`（转发时自动剥除前缀） | `/p/deepseek/v1/chat/completions` |
 | 2 | 请求头 `X-Provider: <key>` | 适合不方便改路径的客户端 |
 | 3 | 模型名前缀命中服务商 `modelPrefixes` | `deepseek-chat` → deepseek |
 | 4 | 激活默认 | 仪表盘顶栏一键切换，或 `POST /api/provider` |
 
 - **密钥注入**：客户端未带 `Authorization` 时，按 `providers.json` 的 `apiKey` > 环境变量顺序注入（见「环境变量」一节）；`TARGET_URL` 仍可覆盖 StepFun 的 baseUrl。
+- **baseUrl 路径前缀自动补齐**（v1.5.11 起）：服务商 baseUrl 自带路径时（GLM 的 `/api/paas/v4` 与 `/api/anthropic`、Kimi 的 `/v1`、Qwen 的 `/compatible-mode/v1` 等），客户端 Base URL **只写到 `/p/<key>`**，上游路径前缀由代理补足——例如 GLM：`http://127.0.0.1:8787/p/glm` + 客户端 `/chat/completions` → 上游 `/api/paas/v4/chat/completions`。**不要**在 Base URL 里重复拼上游前缀（`/p/glm/api/paas/v4` 会被拼两次）。
 - **未知 key 不静默**：路径前缀 / 请求头 / 切换请求指定了未知服务商时返回 400 + 合法服务商列表。
 - **按服务商统计**：仪表盘新增服务商切换器与服务商用量表面板；`/api/stats` 新增 `byProvider` 分组；MCP 查询支持 `group="provider"`。
 
@@ -75,7 +76,7 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 - 首次运行 npx 自动从 GitHub 下载并缓存，之后秒启；运行所需文件与 `bin/cli.mjs` 统一入口见 `package.json` 的 `bin` / `files` 字段。
 - **数据目录与 npm 缓存解耦**：npx 运行时数据统一落在 `~/.stepfun-usage-monitor/`（Windows 为 `C:\Users\<你>\.stepfun-usage-monitor\`），npm 缓存被清理不影响历史数据；目录解析优先级：`DATA_DIR` 环境变量 > `~/.stepfun-usage-monitor/`（存在即用）> 包内 `data/`（检测到历史 `usage.jsonl` 时原地兼容）。`providers.json` 同样放在数据目录。
 
-**ZCode 插件市场安装（v1.5.10，推荐）**：本仓库同时是一个 ZCode 插件市场（根目录 `marketplace.json`）。在 ZCode 中把本仓库添加为插件市场来源后，安装 `stepfun-usage-monitor` 插件，即可获得：
+**ZCode 插件市场安装（v1.5.11，推荐）**：本仓库同时是一个 ZCode 插件市场（根目录 `marketplace.json`）。在 ZCode 中把本仓库添加为插件市场来源后，安装 `stepfun-usage-monitor` 插件，即可获得：
 
 - `/sfm` 命令：一键查询用量并在屏幕底部拉起**吸附弹窗**（超紧凑 KPI 横条，约 1000×190，自动停靠底部居中；代理未运行会自动拉起，重复调用只聚焦不重开）；
 - 弹窗内「⤢ 全量显示」按钮：随时拉起独立浏览器完整仪表盘；
@@ -125,8 +126,8 @@ plugins/stepfun-usage-monitor/
 
 适用于 VS Code 及其分支（Cursor、VSCodium 等）：在 IDE 内直接浏览仪表盘，支持 **底边栏面板 / 小窗 / 独立浏览器页** 三种方式；代理未运行时可自动 `npx` 从 GitHub 拉起（`stepfunMonitor.autoStart`，默认开启）。
 
-1. 从 GitHub Release 下载 `stepfun-monitor-1.5.10.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
-2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.10.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
+1. 从 GitHub Release 下载 `stepfun-monitor-1.5.11.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
+2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.11.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
 3. 命令面板（Ctrl+Shift+P）可用命令：
    - **StepFun 监控：显示底边栏面板** — 底边栏内嵌仪表盘（`?layout=panel`）
    - **StepFun 监控：小窗打开** — 独立编辑器小窗（`?layout=window`）
@@ -134,7 +135,7 @@ plugins/stepfun-usage-monitor/
    - **StepFun 监控：启动本地代理（npx 从 GitHub 拉起）**
 4. 状态栏实时显示今日 token 消耗；代理地址等在设置项 `stepfunMonitor.*` 中调整。
 
-> **ZCode 桌面版**是基于 Electron 的独立应用（非 VS Code 内核），不支持 VSIX 扩展。ZCode 用户请用**方式一** + 插件市场安装（v1.5.10，见上）与下文「仪表盘的三种浏览方式」。
+> **ZCode 桌面版**是基于 Electron 的独立应用（非 VS Code 内核），不支持 VSIX 扩展。ZCode 用户请用**方式一** + 插件市场安装（v1.5.11，见上）与下文「仪表盘的三种浏览方式」。
 
 ### 方式三：手动安装（保留）
 
@@ -353,8 +354,8 @@ stepfun-usage-monitor/
 │     └─ lib/                    paths / providers / open-panel / replay-worker
 ├─ ide-extension/      VS Code 系扩展（底边栏/小窗/浏览器三模式 + 状态栏）
 │  ├─ package.json / extension.js / media/chart.svg
-│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.10.vsix
-│  └─ dist/stepfun-monitor-1.5.10.vsix  可直接安装
+│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.11.vsix
+│  └─ dist/stepfun-monitor-1.5.11.vsix  可直接安装
 ├─ docs/releases/      各版本双语 Release Notes（中文 + English）
 ├─ data/usage.jsonl    用量明细（追加写，首次运行自动创建；手动安装默认位置）
 ├─ data/aggregate.json 聚合快照（自动生成，可删除）
@@ -367,7 +368,8 @@ stepfun-usage-monitor/
    ├─ verify-ui.mjs        仪表盘 / CLI 报表校验
    ├─ ui-perf-check.mjs    v1.4.0 交互性能 / 3 档性能模式的静态断言与载荷实测
    ├─ ui-feature-check.mjs v1.3.0 鹈鹕测试一键复制的静态断言
-   ├─ v15-check.mjs        v1.5.10 多服务商/直载/布局/扩展/数据目录/ZCode 插件结构/吸附弹窗/插件 runtime 自包含断言（静态+运行时）
+   ├─ v15-check.mjs        v1.5.11 多服务商/直载/布局/扩展/数据目录/ZCode 插件结构/吸附弹窗/插件 runtime 自包含断言（静态+运行时）
+   ├─ anthropic-usage-check.mjs Anthropic 协议回归：baseUrl 路径前缀补足 + 流式/非流式 usage 解析（mock 上游，不联网）
    ├─ npm-pack-check.mjs   v1.5.0 npx 直载链路验证（npm pack → 安装 → bin 双模式 + 插件 runtime MCP 运行）
    ├─ build-vsix.mjs       零依赖 VSIX 打包（ZIP 写入 + CRC32 + 自校验）
    ├─ browser-smoke.mjs    真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，含三种布局/三档性能/服务商切换/底栏全量显示按钮）
@@ -385,8 +387,9 @@ node test/mcp-test.mjs                :: MCP：initialize / tools/list / tools/c
 node test/verify-ui.mjs               :: 仪表盘可访问性与 CLI 报表格式
 node test/ui-perf-check.mjs           :: 3 档性能模式、等待动画、lite 精简载荷断言
 node test/ui-feature-check.mjs        :: 鹈鹕测试一键复制的静态断言
-node test/v15-check.mjs               :: v1.5.10：多服务商路由/切换/byProvider、GitHub 直载、三种布局、ZCode 插件结构、吸附弹窗、插件 runtime 自包含、扩展、数据目录（静态+运行时）
-node test/npm-pack-check.mjs          :: v1.5.10：npm pack → tarball 安装 → bin 双模式 + 插件 runtime MCP 真实运行
+node test/v15-check.mjs               :: v1.5.11：多服务商路由/切换/byProvider、GitHub 直载、三种布局、ZCode 插件结构、吸附弹窗、插件 runtime 自包含、扩展、数据目录（静态+运行时）
+node test/anthropic-usage-check.mjs   :: v1.5.11：Anthropic 协议 baseUrl 路径前缀与流式/非流式 usage 解析（mock 上游）
+node test/npm-pack-check.mjs          :: v1.5.11：npm pack → tarball 安装 → bin 双模式 + 插件 runtime MCP 真实运行
 node test/build-vsix.mjs              :: 构建 VSIX（ide-extension/dist/）
 node test/browser-smoke.mjs           :: 真实浏览器运行时校验，含三种布局、三档性能与服务商切换（需本机 Chrome 或 Edge）
 node test/replay-parity.mjs           :: 并行回放 vs 顺序回放：聚合结果逐字段一致性（需先跑 bench）

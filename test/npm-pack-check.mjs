@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * v1.5.11：tarball 断言随版本升级（含 docs/releases/v1.5.11.md）。
  * v1.5.10 npx 直载链路验证：npm pack → tarball 内容（含 ZCode 插件 runtime 自包含） →
  * tarball 安装 → bin 双模式运行 → 插件 runtime MCP → 数据目录解析
  * 结果写入 test/pack-check.txt（本机 PowerShell 无 stdout，统一文件化输出）。
@@ -21,7 +22,7 @@ let tmp;
 try {
   /* ===== 1. npm pack ===== */
   execSync(`"${NPM}" pack --pack-destination "${ROOT}"`, { cwd: ROOT, stdio: 'pipe' });
-  const tgz = path.join(ROOT, 'stepfun-usage-monitor-1.5.10.tgz');
+  const tgz = path.join(ROOT, 'stepfun-usage-monitor-1.5.11.tgz');
   ok('npm pack 生成 tarball', fs.existsSync(tgz), fs.existsSync(tgz) ? fs.statSync(tgz).size + 'B' : 'missing');
 
   /* ===== 2. tarball 内容完整性 ===== */
@@ -48,7 +49,7 @@ try {
     'package/plugins/stepfun-usage-monitor/runtime/lib/open-panel.mjs',
     'package/plugins/stepfun-usage-monitor/runtime/lib/replay-worker.mjs',
     'package/start.cmd', 'package/open-window.cmd', 'package/open-panel.cmd',
-    'package/README.md', 'package/README.en.md', 'package/docs/releases/v1.5.10.md',
+    'package/README.md', 'package/README.en.md', 'package/docs/releases/v1.5.11.md',
     'package/LICENSE', 'package/CHANGELOG.md',
   ];
   const missing = need.filter((f) => !listing.includes(f));
@@ -91,7 +92,7 @@ try {
     } catch { /* 未就绪 */ }
   }
   ok('安装后 bin 默认模式可启动', !!health && health.ok === true, health ? 'v' + health.version : 'no response');
-  ok('/healthz 版本 1.5.10', !!health && health.version === '1.5.10');
+  ok('/healthz 版本 1.5.11', !!health && health.version === '1.5.11');
   if (health) {
     html = await (await fetch('http://127.0.0.1:8792/')).text();
     lite = await (await fetch('http://127.0.0.1:8792/api/stats?days=30&lite=1')).json();
@@ -100,7 +101,7 @@ try {
   ok('仪表盘 HTML 含布局脚本', html.includes('URLSearchParams(location.search)') && html.includes('data-layout'));
   ok('仪表盘 HTML 含「全量显示」按钮（v1.5.10）', html.includes('id="btn-full"'));
   ok('lite 载荷 200 且结构正确', !!lite && Array.isArray(lite.byDay) && !!lite.meta);
-  ok('完整载荷 200 且 meta.version=1.5.10', !!stats && stats.meta && stats.meta.version === '1.5.10');
+  ok('完整载荷 200 且 meta.version=1.5.11', !!stats && stats.meta && stats.meta.version === '1.5.11');
   ok('数据目录落 DATA_DIR（启动即创建；usage.jsonl 首条记录时追加）',
     fs.existsSync(dataTmp), fs.existsSync(dataTmp) ? 'dir ok' : 'dir missing');
   try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
@@ -112,7 +113,7 @@ try {
   });
   const mcpMsg = JSON.parse(mcpOut.split('\n').find((l) => l.includes('"id":1')) || '{}');
   ok('--mcp 模式 initialize 应答', mcpMsg.result && mcpMsg.result.serverInfo, mcpMsg.result ? 'v' + mcpMsg.result.serverInfo.version : 'none');
-  ok('--mcp serverInfo.version=1.5.10', mcpMsg.result && mcpMsg.result.serverInfo && mcpMsg.result.serverInfo.version === '1.5.10');
+  ok('--mcp serverInfo.version=1.5.11', mcpMsg.result && mcpMsg.result.serverInfo && mcpMsg.result.serverInfo.version === '1.5.11');
 
   /* ===== 7. 安装态 ZCode 插件 runtime MCP（v1.5.10：.mcp.json 实际指向的入口） ===== */
   const rtCli = path.join(installed, 'plugins', 'stepfun-usage-monitor', 'runtime', 'bin', 'cli.mjs');
@@ -122,8 +123,8 @@ try {
       input: mcpIn, encoding: 'utf8', env: { ...process.env, DATA_DIR: dataTmp }, timeout: 15000,
     });
     const rtMsg = JSON.parse(rtOut.split('\n').find((l) => l.includes('"id":1')) || '{}');
-    ok('runtime MCP initialize 应答且版本 1.5.10',
-      rtMsg.result && rtMsg.result.serverInfo && rtMsg.result.serverInfo.version === '1.5.10',
+    ok('runtime MCP initialize 应答且版本 1.5.11',
+      rtMsg.result && rtMsg.result.serverInfo && rtMsg.result.serverInfo.version === '1.5.11',
       rtMsg.result ? 'v' + rtMsg.result.serverInfo.version : 'none');
   }
 
@@ -134,6 +135,6 @@ try {
   OUT.push('RESULT: FAIL');
 } finally {
   try { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 清理失败不影响结果 */ }
-  try { fs.rmSync(path.join(ROOT, 'stepfun-usage-monitor-1.5.10.tgz'), { force: true }); } catch { /* ignore */ }
+  try { fs.rmSync(path.join(ROOT, 'stepfun-usage-monitor-1.5.11.tgz'), { force: true }); } catch { /* ignore */ }
 }
 fs.writeFileSync(path.join(__dirname, 'pack-check.txt'), OUT.join('\n') + '\n');

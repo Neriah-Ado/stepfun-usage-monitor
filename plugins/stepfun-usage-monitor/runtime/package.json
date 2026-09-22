@@ -1,7 +1,7 @@
 {
   "name": "stepfun-usage-monitor",
-  "version": "1.5.10",
-  "description": "大模型 API Token 用量本地监控代理（多服务商）：零依赖、低开销、数据全本地，内置轻量/进阶/极致 3 档性能模式，支持 npx 从 GitHub URL 直载，兼容任意 OpenAI 兼容 Agent（ZCode/Cline/Continue/Cherry Studio 等）；v1.5.9 起适配 ZCode 官方插件市场结构并提供 Agent 页面吸附弹窗；v1.5.10 起 ZCode 插件安装后自包含（内置 runtime 全部运行文件）",
+  "version": "1.5.11",
+  "description": "大模型 API Token 用量本地监控代理（多服务商）：零依赖、低开销、数据全本地，内置轻量/进阶/极致 3 档性能模式，支持 npx 从 GitHub URL 直载，兼容任意 OpenAI 兼容 Agent（ZCode/Cline/Continue/Cherry Studio 等）；v1.5.9 起适配 ZCode 官方插件市场结构并提供 Agent 页面吸附弹窗；v1.5.10 起 ZCode 插件安装后自包含（内置 runtime 全部运行文件）；v1.5.11 修复服务商 baseUrl 路径前缀丢失与 Anthropic 协议用量解析",
   "type": "module",
   "main": "proxy.mjs",
   "bin": {
@@ -39,6 +39,7 @@
     "stats": "node stats.mjs",
     "mcp": "node mcp-server.mjs",
     "test:e2e": "node test/run-e2e.mjs",
+    "test:anthropic": "node test/anthropic-usage-check.mjs",
     "test:mcp": "node test/mcp-test.mjs",
     "test:ui": "node test/verify-ui.mjs",
     "test:ui-perf": "node test/ui-perf-check.mjs",

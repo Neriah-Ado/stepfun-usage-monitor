@@ -8,6 +8,7 @@ demo-data/
 test/*.txt
 test/*.json
 test/e2e-data/
+test/anthropic-data/
 test/repro-data/
 test/bench-*.jsonl
 test/bench-old/
