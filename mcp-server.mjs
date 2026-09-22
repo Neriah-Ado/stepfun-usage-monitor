@@ -4,6 +4,7 @@
  *
  * 让 ZCode / Claude Code / Cline 等支持 MCP 的 Agent 直接对话查询本地 Token 用量。
  * 数据源与 proxy.mjs 相同（usage.jsonl），只读访问；数据目录解析规则见 lib/paths.mjs（v1.5.0 三入口统一）。
+ * v1.5.5：query_stepfun_usage 支持 group="provider" 按服务商分组（多服务商统计）。
  *
  * ZCode / Claude Code 配置示例（推荐 npx 直载，无需 clone；v1.5.0 起）：
  * {
@@ -58,13 +59,15 @@ function query({ days = 7, group = 'agent' } = {}) {
     p += pp; c += cc; tt += (r.total_tokens || pp + cc);
     const key = group === 'day' ? dayKey(t)
       : group === 'model' ? (r.model || '未知模型')
+      : group === 'provider' ? (r.provider || 'stepfun')   // v1.5.5：按服务商分组
       : (r.agent || '未知客户端');
     const g = touch(key); g.requests++; g.prompt += pp; g.completion += cc; g.total += (r.total_tokens || pp + cc);
   }
 
   const rows = [...map.values()].sort((a, b) => b.total - a.total);
+  const groupName = group === 'day' ? '天' : group === 'model' ? '模型' : group === 'provider' ? '服务商' : '客户端';
   const lines = [
-    `StepFun API Token 用量（最近 ${days} 天，按${group === 'day' ? '天' : group === 'model' ? '模型' : '客户端'}分组）`,
+    `StepFun API Token 用量（最近 ${days} 天，按${groupName}分组）`,
     `总计：请求 ${req} 次（失败 ${err}），输入 ${fmtN(p)}，输出 ${fmtN(c)}，合计 ${fmtN(tt)} tokens。`,
     '',
     ...rows.map((r) => `${r.name}：请求 ${r.requests} 次，输入 ${fmtN(r.prompt)}，输出 ${fmtN(r.completion)}，合计 ${fmtN(r.total)} tokens`),
@@ -81,7 +84,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         days: { type: 'number', description: '统计最近 N 天，默认 7，最大 3650' },
-        group: { type: 'string', enum: ['day', 'model', 'agent'], description: '分组方式：day=按天，model=按模型，agent=按客户端，默认 agent' },
+        group: { type: 'string', enum: ['day', 'model', 'agent', 'provider'], description: '分组方式：day=按天，model=按模型，agent=按客户端，provider=按服务商（v1.5.5），默认 agent' },
       },
     },
   },
@@ -93,7 +96,7 @@ function handleMessage(msg) {
     return {
       protocolVersion: params && params.protocolVersion ? params.protocolVersion : '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'stepfun-usage-monitor', version: '1.5.0' },
+      serverInfo: { name: 'stepfun-usage-monitor', version: '1.5.5' },
     };
   }
   if (method === 'tools/list') return { tools: TOOLS };

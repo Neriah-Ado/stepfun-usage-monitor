@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>StepFun Token 用量监控</title>
-<script>/* v1.5.0：布局模式先于样式生效（?layout=window|panel|full），避免嵌入模式闪现完整页（FOUC） */
+<script>/* v1.5.5：布局模式先于样式生效（?layout=window|panel|full），避免嵌入模式闪现完整页（FOUC） */
 (function(){try{var m=new URLSearchParams(location.search).get('layout');if(m==='window'||m==='panel')document.documentElement.dataset.layout=m;}catch(e){}})();
 </script>
 <style>
@@ -111,6 +111,20 @@ html[data-perf="lite"] .sync .spin{animation:none;border-top-color:var(--muted)}
 .btn-ghost{background:#fff;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:0 12px;font:13px/1 inherit;min-height:34px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .btn-ghost:active{background:#f2f4f8}
 
+/* ---------- 服务商切换器（v1.5.5：一键切换，无需复杂操作） ---------- */
+#prov-bar{position:relative}
+#prov-current{font-weight:600;color:var(--ink);max-width:min(280px,60vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#prov-current .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:0}
+#prov-current .dot.no{background:var(--warn)}
+.prov-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:500;min-width:300px;max-width:min(440px,92vw);background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 28px rgba(31,35,41,.16);padding:6px;max-height:min(60vh,430px);overflow:auto}
+.prov-item{display:flex;align-items:center;gap:8px;width:100%;border:0;background:transparent;font:13px/1.4 inherit;color:var(--ink);padding:9px 10px;border-radius:8px;cursor:pointer;text-align:left;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.prov-item:hover{background:#f2f4f8}
+.prov-item[aria-selected="true"]{background:#eef1f6;font-weight:600}
+.prov-item .nm{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prov-item .url{font-size:11px;color:var(--muted);flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px}
+.prov-item .cur{font-size:11px;color:var(--p);flex:none}
+.prov-item .warn{font-size:11px;color:var(--warn);flex:none}
+
 /* ---------- Toast ---------- */
 .toast{position:fixed;left:50%;top:16px;transform:translateX(-50%) translateY(-10px);background:#1f2329;color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:999;max-width:88vw;box-shadow:0 6px 18px rgba(0,0,0,.18);word-break:break-all}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -132,6 +146,8 @@ html[data-layout="window"] .sub,html[data-layout="panel"] .sub{margin:2px 0 10px
 html[data-layout="window"] .perf,html[data-layout="panel"] .perf{flex-wrap:wrap;gap:6px}
 html[data-layout="window"] #perf-desc{display:none}
 html[data-layout="panel"] #perf-bar{display:none}   /* 底栏只留 KPI 横条，性能档位沿用已保存设置 */
+html[data-layout="panel"] #prov-bar{display:none}   /* v1.5.5：底栏不显示服务商切换器（激活项见页脚） */
+html[data-layout="window"] #p-providers{display:none!important}   /* v1.5.5：小窗只保留 KPI + 图表 */
 html[data-layout="window"] .cards{gap:8px;margin-bottom:12px}
 html[data-layout="window"] .card{padding:8px 10px}
 html[data-layout="window"] .card .v{font-size:18px}
@@ -164,6 +180,13 @@ html[data-layout="panel"] #toast{bottom:8px}
     <a class="btn-ghost" id="lnk-full" href="/" title="完整页（默认布局）">完整页</a>
     <a class="btn-ghost" id="lnk-window" href="/?layout=window" title="小窗模式：紧凑布局，适合悬浮窗 / 分屏">小窗</a>
     <a class="btn-ghost" id="lnk-panel" href="/?layout=panel" title="底部横条模式：超紧凑 KPI 横条，适合贴边停靠">底栏</a>
+  </div>
+
+  <div class="perf" id="prov-bar">
+    <span class="t">服务商</span>
+    <button class="btn-ghost" id="prov-current" type="button" aria-haspopup="listbox" aria-expanded="false" title="点击切换大模型服务商（一键生效，无需修改客户端配置）">加载中…</button>
+    <span class="desc" id="prov-desc"></span>
+    <div class="prov-menu" id="prov-menu" hidden role="listbox" aria-label="选择大模型服务商"></div>
   </div>
 
   <div class="sub" id="sub">数据全部存储于本地 usage.jsonl · 不采集任何密钥</div>
@@ -244,6 +267,9 @@ const SHELL = `
     <thead><tr><th>客户端</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
     <tbody id="tb-agent"></tbody></table></div>
 </div>
+<div class="panel" id="p-providers"><h2>服务商用量</h2><table>
+  <thead><tr><th>服务商</th><th class="num">请求</th><th class="num">输入</th><th class="num">输出</th><th class="num">Tokens</th></tr></thead>
+  <tbody id="tb-provider"></tbody></table></div>
 <div class="panel" id="p-recent"><h2>最近请求</h2><table>
   <thead><tr><th>时间</th><th>客户端</th><th>模型</th><th class="num">输入</th><th class="num">输出</th><th class="num">合计</th><th>状态</th><th class="num">耗时</th></tr></thead>
   <tbody id="tb-recent"></tbody></table></div>`;
@@ -259,9 +285,9 @@ function mount() {
     kTotal: $('#k-total'), kToday: $('#k-today'), kWeek: $('#k-week'), kReq: $('#k-req'), kErr: $('#k-err'),
     pLoading: $('#p-loading'), pChart: $('#p-chart'), chartTitle: $('#chart-title'),
     chartSvg: $('#chart-svg'), chartText: $('#chart-text'), chartLegend: $('#chart-legend'),
-    tbModel: $('#tb-model'), tbAgent: $('#tb-agent'), tbRecent: $('#tb-recent'), sub: $('#sub'),
+    tbModel: $('#tb-model'), tbAgent: $('#tb-agent'), tbProvider: $('#tb-provider'), tbRecent: $('#tb-recent'), sub: $('#sub'),
   };
-  lastSig = { all: '', chart: '', model: '', agent: '', recent: '' };
+  lastSig = { all: '', chart: '', model: '', agent: '', provider: '', recent: '' };
   mounted = true;
 }
 
@@ -372,6 +398,7 @@ let lastUpdated = 0;
 function render(data) {
   if (!mounted) mount();
   const m = data.meta || {};
+  syncProvFromMeta(m);   // v1.5.5：服务商列表/激活项以服务端为准（含切换后的回滚确认）
   const t = data.total || {};
   const byDay = data.byDay || [];
   const today = byDay[byDay.length - 1] || { total: 0 };
@@ -433,6 +460,11 @@ function render(data) {
   if (sigM !== lastSig.model) { refs.tbModel.innerHTML = rowsHTML(byModel, 'm', cfg().rows); lastSig.model = sigM; }
   if (sigA !== lastSig.agent) { refs.tbAgent.innerHTML = rowsHTML(byAgent, 'a', cfg().rows); lastSig.agent = sigA; }
 
+  // v1.5.5：服务商用量表（同签名短路）
+  const byProvider = data.byProvider || [];
+  const sigP = byProvider.slice(0, cfg().rows).map((r) => r.name + r.total).join('|');
+  if (sigP !== lastSig.provider) { refs.tbProvider.innerHTML = rowsHTML(byProvider, 'v', cfg().rows); lastSig.provider = sigP; }
+
   const recent = (data.recent || []).slice(0, cfg().recent);
   const sigR = recent.map((r) => r.ts + r.total_tokens).join('|');
   if (sigR !== lastSig.recent) { refs.tbRecent.innerHTML = recentHTML(recent); lastSig.recent = sigR; }
@@ -446,7 +478,8 @@ function writeSub(m) {
   const perf = `v${m.version || '—'} · 内存 ${m.memoryMB || 0}MB · 在用连接 ${m.sockets || 0} · 运行 ${m.uptimeSec || 0}s`;
   const when = lastUpdated ? ` · 更新于 ${nowHMS()}` : '';
   const mode = perfMode === 'lite' ? ' · 轮询 120s（隐藏即暂停）' : ` · 轮询 ${cfg().interval / 1000}s（隐藏即暂停）`;
-  const txt = `上游 ${m.target || '—'} · 请求 ${fmt(m.requests)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · ${perf}${mode}${when}`;
+  const prov = m.providerName ? ` · 服务商 ${m.providerName}` : '';   // v1.5.5
+  const txt = `上游 ${m.providerOrigin || m.target || '—'}${prov} · 请求 ${fmt(m.requests)} 条 · 数据文件 ${m.file || 'usage.jsonl'} · ${perf}${mode}${when}`;
   if (refs.sub.textContent !== txt) refs.sub.textContent = txt;
 }
 
@@ -510,7 +543,7 @@ function applyMode(mode, persist, silent) {
   bar && bar.querySelectorAll('button[data-perf]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.perf === perfMode)));
   setText($('#perf-desc'), cfg().desc);
   if (mounted) {                                      // 重置签名，强制按新档位重绘一次
-    lastSig = { all: '', chart: '', model: '', agent: '', recent: '' };
+    lastSig = { all: '', chart: '', model: '', agent: '', provider: '', recent: '' };
     if (!cfg().chart) refs.chartSvg.innerHTML = '';   // 轻量模式不保留 SVG 节点内容
   }
   if (silent) return;
@@ -534,6 +567,74 @@ $('#btn-refresh').addEventListener('click', () => {
   if (!mounted) mount();
   load(true);
 });
+
+/* ==================== 服务商切换器（v1.5.5：一键切换，无需复杂操作） ==================== */
+const provState = { active: '', providers: [], open: false };
+function provHost(p) { try { return new URL(p.baseUrl).host; } catch { return p.baseUrl || ''; } }
+function renderProvBar() {
+  const btn = $('#prov-current');
+  if (!btn) return;
+  const cur = provState.providers.find((p) => p.key === provState.active);
+  btn.innerHTML = cur
+    ? `<span class="dot${cur.hasKey ? '' : ' no'}"></span>${esc(cur.name)}`
+    : '加载中…';
+  const desc = $('#prov-desc');
+  if (desc && cur) desc.textContent = provHost(cur) + (cur.hasKey ? '' : ' · 未配置密钥');
+  const menu = $('#prov-menu');
+  if (menu) {
+    menu.innerHTML = provState.providers.map((p) => `
+      <button type="button" role="option" class="prov-item" data-key="${esc(p.key)}" aria-selected="${p.key === provState.active}">
+        <span class="nm">${esc(p.name)}</span>
+        ${p.hasKey ? '' : '<span class="warn">未配密钥</span>'}
+        <span class="url">${esc(provHost(p))}</span>
+        ${p.key === provState.active ? '<span class="cur">当前</span>' : ''}
+      </button>`).join('') || '<div style="padding:10px;color:#8a919f">暂无服务商</div>';
+  }
+}
+function syncProvFromMeta(m) {
+  if (m && Array.isArray(m.providers) && m.providers.length) {
+    provState.providers = m.providers;
+    if (m.provider) provState.active = m.provider;
+    renderProvBar();
+  }
+}
+function toggleProvMenu(force) {
+  const menu = $('#prov-menu'), btn = $('#prov-current');
+  if (!menu || !btn) return;
+  const show = force != null ? force : menu.hasAttribute('hidden');
+  if (show) menu.removeAttribute('hidden'); else menu.setAttribute('hidden', '');
+  btn.setAttribute('aria-expanded', String(show));
+  provState.open = show;
+}
+/** 一键切换：乐观 UI 立即呈现 → POST /api/provider → 成功即刷新统计；失败回滚并提示 */
+async function switchProvider(key) {
+  const prev = provState.active;
+  if (key === prev) { toggleProvMenu(false); return; }
+  provState.active = key;
+  renderProvBar();
+  toggleProvMenu(false);
+  try {
+    const res = await fetch('/api/provider', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) throw new Error(j.error || 'HTTP ' + res.status);
+    showToast(`已切换服务商：${(j.provider && j.provider.name) || key}`, 'ok');
+    load(true);
+  } catch (e) {
+    provState.active = prev;
+    renderProvBar();
+    showToast('切换失败：' + ((e && e.message) || '网络错误'), 'err');
+  }
+}
+$('#prov-current').addEventListener('click', () => toggleProvMenu());
+$('#prov-menu').addEventListener('click', (e) => {
+  const item = e.target.closest('.prov-item');
+  if (item) switchProvider(item.dataset.key);
+});
+document.addEventListener('click', (e) => {           // 点击菜单之外关闭
+  const bar = $('#prov-bar');
+  if (bar && !bar.contains(e.target)) toggleProvMenu(false);
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') toggleProvMenu(false); });
 
 /* ---------------- 启动 ---------------- */
 mount();

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * v1.5.0 静态 + 运行时断言：GitHub URL 直载 / 三种嵌入布局 / VSIX 扩展 / 统一数据目录
+ * v1.5.5 静态 + 运行时断言：多服务商 / GitHub URL 直载 / 三种嵌入布局 / VSIX 扩展 / 统一数据目录
  * 结果写入 test/v15-check.txt
  */
 import fs from 'node:fs';
@@ -17,6 +17,9 @@ const OUT = [];
 const checks = [];
 const assert = (name, cond, extra) => { checks.push([name, !!cond]); OUT.push(`${cond ? 'PASS' : 'FAIL'} - ${name}${extra ? ' :: ' + extra : ''}`); };
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const NODE = process.execPath;
+
 try {
   const pkg = JSON.parse(R('package.json'));
   const cli = R('bin/cli.mjs');
@@ -25,13 +28,40 @@ try {
   const mcp = R('mcp-server.mjs');
   const stats = R('stats.mjs');
   const dash = R('dashboard.html');
+  const providers = exists('lib/providers.mjs') ? R('lib/providers.mjs') : '';
+  const worker = exists('lib/replay-worker.mjs') ? R('lib/replay-worker.mjs') : '';
+
+  /* ===== 0. 多服务商（v1.5.5）静态断言 ===== */
+  assert('lib/providers.mjs 存在且导出注册表 API',
+    /export const BUILTIN_PROVIDERS/.test(providers) && /export function loadProviderState/.test(providers) && /export function providerKeyFor/.test(providers));
+  assert('内置服务商覆盖 GLM/DeepSeek/Kimi/MiniMax/Qwen/Yi',
+    ['glm', 'deepseek', 'kimi', 'minimax', 'qwen', 'yi'].every((k) => providers.includes(`key: '${k}'`)));
+  assert('路由优先级实现（/p/<key> 前缀 > X-Provider 头 > 模型名前缀 > 激活默认）',
+    /PATH_PREFIX_RE/.test(providers) && /x-provider/.test(providers) && /modelPrefixes/.test(providers) && /activeProvider/.test(providers));
+  assert('proxy.mjs 接入多服务商注册表', /loadProviderState/.test(proxy) && /from '\.\/lib\/providers\.mjs'/.test(proxy) && /providerKeyFor/.test(proxy));
+  assert('proxy.mjs 转发按服务商路由（opts.target / forwardPath）',
+    /opts\.target/.test(proxy) && /forwardPath/.test(proxy) && /route\.error/.test(proxy));
+  assert('proxy.mjs 未知服务商返回 400 + 合法列表', /unknown_provider/.test(proxy) && /valid_providers/.test(proxy));
+  assert('proxy.mjs 使用记录含 provider 字段', /provider: opts\.providerKey/.test(proxy));
+  assert('proxy.mjs 统计含 byProvider 与 /api/providers、/api/provider',
+    /byProvider/.test(proxy) && /pn === '\/api\/providers'/.test(proxy) && /pn === '\/api\/provider'/.test(proxy));
+  assert('proxy.mjs 密钥按服务商注入（文件 apiKey > 环境变量）', /providerKeyFor\(provider\)/.test(proxy));
+  assert('replay-worker.mjs 并行回放按服务商聚合', /byProvider/.test(worker) && /rec\.provider \|\| 'stepfun'/.test(worker));
+  assert('mcp-server.mjs 支持 group=provider', /group === 'provider'/.test(mcp) && /enum: \['day', 'model', 'agent', 'provider'\]/.test(mcp));
+  assert('仪表盘含服务商切换器（prov-bar/prov-current/prov-menu）',
+    /id="prov-bar"/.test(dash) && /id="prov-current"/.test(dash) && /id="prov-menu"/.test(dash));
+  assert('仪表盘一键切换逻辑（乐观 UI + POST /api/provider + 失败回滚）',
+    /async function switchProvider/.test(dash) && /fetch\('\/api\/provider'/.test(dash) && /provState\.active = prev/.test(dash));
+  assert('仪表盘含服务商用量表面板', /id="p-providers"/.test(dash) && /id="tb-provider"/.test(dash) && /byProvider/.test(dash));
+  assert('底栏布局隐藏切换器、小窗隐藏服务商表',
+    /html\[data-layout="panel"\] #prov-bar\{display:none\}/.test(dash) && /html\[data-layout="window"\] #p-providers\{display:none!important\}/.test(dash));
 
   /* ===== 1. GitHub URL 直载（npx bin） ===== */
   assert('bin/cli.mjs 带 shebang', cli.startsWith('#!/usr/bin/env node'));
   assert('bin/cli.mjs 支持 --mcp 分发', /--mcp/.test(cli) && /mcp-server\.mjs/.test(cli));
   assert('bin/cli.mjs 支持 --port / --data-dir', /--port/.test(cli) && /--data-dir/.test(cli));
   assert('bin/cli.mjs 帮助含 npx 直载示例', cli.includes('npx -y github:Neriah-Ado/stepfun-usage-monitor'));
-  assert('package.json version=1.5.0', pkg.version === '1.5.0');
+  assert('package.json version=1.5.5', pkg.version === '1.5.5');
   assert('package.json bin 指向 cli', pkg.bin && pkg.bin['stepfun-usage-monitor'] === 'bin/cli.mjs');
   assert('package.json files 含 bin/lib/zcode', ['bin/', 'lib/', 'zcode/'].every((f) => (pkg.files || []).includes(f)));
   assert('package.json repository 指向 GitHub', /github\.com\/Neriah-Ado\/stepfun-usage-monitor/.test(JSON.stringify(pkg.repository || {})));
@@ -43,9 +73,9 @@ try {
   assert('stats.mjs 接入统一数据目录', /resolveDataDir/.test(stats));
 
   /* ===== 2. 版本一致性 ===== */
-  assert('proxy.mjs VERSION=1.5.0', /const VERSION = '1\.5\.0'/.test(proxy));
-  assert('mcp-server.mjs serverInfo 1.5.0', /version: '1\.5\.0'/.test(mcp));
-  assert('proxy.mjs 头部含 v1.5.0 说明', proxy.includes('v1.5.0'));
+  assert('proxy.mjs VERSION=1.5.5', /const VERSION = '1\.5\.5'/.test(proxy));
+  assert('mcp-server.mjs serverInfo 1.5.5', /version: '1\.5\.5'/.test(mcp));
+  assert('proxy.mjs 头部含 v1.5.5 说明', proxy.includes('v1.5.5'));
 
   /* ===== 3. 三种嵌入布局 ===== */
   assert('仪表盘 LAYOUT 常量', /const LAYOUT = document\.documentElement\.dataset\.layout \|\| 'full'/.test(dash));
@@ -73,7 +103,7 @@ try {
   const extPkgRaw = exists('ide-extension/package.json') ? R('ide-extension/package.json') : '';
   let extPkg = {};
   try { extPkg = JSON.parse(extPkgRaw); } catch { /* parse fail */ }
-  assert('扩展 manifest version=1.5.0', extPkg.version === '1.5.0');
+  assert('扩展 manifest version=1.5.5', extPkg.version === '1.5.5');
   assert('扩展提供三种打开命令', ['openPanel', 'openWindow', 'openInBrowser'].every((c) => extPkgRaw.includes(`stepfunMonitor.${c}`)));
   assert('扩展有底边栏视图容器', extPkgRaw.includes('viewsContainers') && extPkgRaw.includes('"panel"'));
   const extJs = exists('ide-extension/extension.js') ? R('ide-extension/extension.js') : '';
@@ -82,9 +112,9 @@ try {
   assert('扩展浏览器模式用 env.openExternal', extJs.includes('env.openExternal'));
   assert('扩展 iframe 指向 layout=panel / layout=window', extJs.includes('layout=panel') && extJs.includes('layout=window'));
   assert('扩展含状态栏今日 tokens', extJs.includes('createStatusBarItem'));
-  assert('VSIX 已构建且非空', exists('ide-extension/dist/stepfun-monitor-1.5.0.vsix') &&
-    fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.0.vsix')).size > 1000,
-    exists('ide-extension/dist/stepfun-monitor-1.5.0.vsix') ? fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.0.vsix')).size + 'B' : 'missing');
+  assert('VSIX 已构建且非空', exists('ide-extension/dist/stepfun-monitor-1.5.5.vsix') &&
+    fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.5.vsix')).size > 1000,
+    exists('ide-extension/dist/stepfun-monitor-1.5.5.vsix') ? fs.statSync(path.join(ROOT, 'ide-extension/dist/stepfun-monitor-1.5.5.vsix')).size + 'B' : 'missing');
   assert('VSIX 构建器存在（零依赖）', exists('test/build-vsix.mjs'));
 
   /* ===== 6. 运行时：?layout= 由服务端原样下发（同一 HTML，前端内联脚本分流） ===== */
@@ -95,17 +125,130 @@ try {
   });
   let health = null, htmlPanel = '', htmlFull = '';
   for (let i = 0; i < 40 && !health; i++) {
-    await new Promise((r) => setTimeout(r, 250));
+    await sleep(250);
     try { health = await (await fetch(`http://127.0.0.1:${PORT}/healthz`)).json(); } catch { /* retry */ }
   }
-  assert('运行时 /healthz version=1.5.0', !!health && health.version === '1.5.0');
+  assert('运行时 /healthz version=1.5.5', !!health && health.version === '1.5.5');
   if (health) {
     htmlPanel = await (await fetch(`http://127.0.0.1:${PORT}/?layout=panel`)).text();
     htmlFull = await (await fetch(`http://127.0.0.1:${PORT}/`)).text();
   }
   assert('?layout=panel 返回同一仪表盘 HTML', htmlPanel.includes('URLSearchParams(location.search)') && htmlPanel === htmlFull);
   try { child.kill('SIGKILL'); } catch { /* ignore */ }
-  try { fs.rmSync(dataTmp, { recursive: true, force: true }); } catch { /* ignore */ }
+
+  /* ===== 7. 运行时：多服务商路由 / 切换 / byProvider 统计 ===== */
+  const MA = 18901, MB = 18902, PP = 8794;
+  const dataTmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'sfm-pv-'));
+  fs.writeFileSync(path.join(dataTmp2, 'providers.json'), JSON.stringify({
+    active: 'stepfun',
+    providers: [
+      { key: 'mockb', name: 'Mock B', baseUrl: `http://127.0.0.1:${MB}`, apiKey: 'sk-v15-test', modelPrefixes: ['mockb-'] },
+      { key: 'deepseek', baseUrl: `http://127.0.0.1:${MB}` },
+    ],
+  }, null, 2));
+  const cleanEnv = { ...process.env };
+  for (const k of ['STEPFUN_API_KEY', 'GLM_API_KEY', 'DEEPSEEK_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_API_KEY', 'MINIMAX_API_KEY', 'DASHSCOPE_API_KEY', 'YI_API_KEY']) delete cleanEnv[k];
+  const mockA = spawn(NODE, [path.join(ROOT, 'test', 'mock-upstream.mjs')], {
+    env: { ...cleanEnv, MOCK_PORT: String(MA), MOCK_LOG: path.join(dataTmp2, 'mockA.log') }, stdio: 'ignore',
+  });
+  const mockB = spawn(NODE, [path.join(ROOT, 'test', 'mock-upstream.mjs')], {
+    env: { ...cleanEnv, MOCK_PORT: String(MB), MOCK_LOG: path.join(dataTmp2, 'mockB.log') }, stdio: 'ignore',
+  });
+  const proxy2 = spawn(NODE, [path.join(ROOT, 'proxy.mjs')], {
+    env: { ...cleanEnv, PORT: String(PP), TARGET_URL: `http://127.0.0.1:${MA}`, DATA_DIR: dataTmp2 }, stdio: 'ignore',
+  });
+  try {
+    let h2 = null;
+    for (let i = 0; i < 60 && !h2; i++) { await sleep(250); try { h2 = await (await fetch(`http://127.0.0.1:${PP}/healthz`)).json(); } catch { /* retry */ } }
+    assert('多服务商代理就绪', !!h2 && h2.version === '1.5.5' && h2.provider === 'stepfun');
+
+    const post = async (p, body, headers) => {
+      const r = await fetch(`http://127.0.0.1:${PP}${p}`, { method: 'POST', headers: { 'content-type': 'application/json', ...(headers || {}) }, body: JSON.stringify(body) });
+      return { status: r.status, json: await r.json().catch(() => ({})) };
+    };
+    const readLog = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+    const lastRecord = () => {
+      const lines = readLog(path.join(dataTmp2, 'usage.jsonl')).trim().split('\n').filter(Boolean);
+      return lines.length ? JSON.parse(lines[lines.length - 1]) : null;
+    };
+    const recordCount = () => readLog(path.join(dataTmp2, 'usage.jsonl')).trim().split('\n').filter(Boolean).length;
+    // 记录落盘是异步的（setImmediate + appendFile）：轮询等待本次请求的记录出现并满足条件，消除竞态
+    const waitForRecord = async (pred, minCount, timeoutMs = 5000) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < timeoutMs) {
+        const lines = readLog(path.join(dataTmp2, 'usage.jsonl')).trim().split('\n').filter(Boolean);
+        if (lines.length > minCount) {
+          try { const rec = JSON.parse(lines[lines.length - 1]); if (pred(rec)) return rec; } catch { /* 半行：下次重试 */ }
+        }
+        await sleep(50);
+      }
+      return null;
+    };
+
+    // 1) 列表
+    const listRes = await (await fetch(`http://127.0.0.1:${PP}/api/providers`)).json();
+    assert('/api/providers 返回全部服务商且激活 stepfun',
+      listRes.active === 'stepfun' && ['stepfun', 'glm', 'deepseek', 'kimi', 'minimax', 'qwen', 'yi', 'mockb'].every((k) => listRes.providers.some((p) => p.key === k)));
+    assert('providers.json 覆盖 deepseek baseUrl 生效',
+      listRes.providers.find((p) => p.key === 'deepseek').baseUrl === `http://127.0.0.1:${MB}`);
+    assert('/api/providers 不泄露 apiKey', !JSON.stringify(listRes).includes('sk-v15-test'));
+
+    // 2) 默认路由 → mock A（stepfun）
+    const n1 = recordCount();
+    const r1 = await post('/v1/chat/completions', { model: 'step-2-16k', messages: [] });
+    assert('默认路由转发到激活服务商（mock A）', r1.status === 200 && readLog(path.join(dataTmp2, 'mockA.log')).includes('POST /v1/chat/completions'));
+    assert('记录 provider=stepfun', (await waitForRecord((r) => r.provider === 'stepfun', n1)) !== null);
+    assert('无密钥配置时不注入 Authorization', readLog(path.join(dataTmp2, 'mockA.log')).includes('auth=no'));
+
+    // 3) 路径前缀 /p/mockb/v1 → mock B（前缀剥除）
+    const n2 = recordCount();
+    const r2 = await post('/p/mockb/v1/chat/completions', { model: 'anything', messages: [] });
+    assert('/p/<key>/ 路径前缀路由并剥除前缀', r2.status === 200 && readLog(path.join(dataTmp2, 'mockB.log')).includes('POST /v1/chat/completions'));
+    assert('providers.json apiKey 注入上游', readLog(path.join(dataTmp2, 'mockB.log')).includes('auth=yes'));
+    assert('记录 provider=mockb（路径）', (await waitForRecord((r) => r.provider === 'mockb', n2)) !== null);
+
+    // 4) X-Provider 头路由
+    const n3 = recordCount();
+    const r3 = await post('/v1/chat/completions', { model: 'anything', messages: [] }, { 'X-Provider': 'mockb' });
+    assert('X-Provider 头路由生效', r3.status === 200 && (await waitForRecord((r) => r.provider === 'mockb', n3)) !== null);
+
+    // 5) 模型名前缀路由（deepseek 被覆盖到 mock B）
+    const n4 = recordCount();
+    const r4 = await post('/v1/chat/completions', { model: 'deepseek-chat', messages: [] });
+    assert('模型名前缀路由生效（deepseek-chat → deepseek）', r4.status === 200 && (await waitForRecord((r) => r.provider === 'deepseek', n4)) !== null);
+
+    // 6) 未知服务商 → 400
+    const r5 = await post('/p/zzz/v1/chat/completions', { model: 'x', messages: [] });
+    const r6 = await post('/v1/chat/completions', { model: 'x', messages: [] }, { 'X-Provider': 'zzz' });
+    assert('未知路径前缀返回 400 + 合法列表', r5.status === 400 && Array.isArray(r5.json.valid_providers) && r5.json.valid_providers.includes('mockb'));
+    assert('未知 X-Provider 返回 400', r6.status === 400);
+
+    // 7) 一键切换激活服务商
+    const sw = await (await fetch(`http://127.0.0.1:${PP}/api/provider`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'mockb' }) })).json();
+    assert('POST /api/provider 切换激活服务商', sw.ok === true && sw.active === 'mockb');
+    // 注意：必须用不命中任何 modelPrefixes 的中性模型名，才能验证「激活默认」这一级路由
+    // （若用 step-2-16k，模型名前缀 step- 会按既定优先级压过激活默认而路由到 stepfun）
+    const r7 = await post('/v1/chat/completions', { model: 'test-active-model', messages: [] });
+    assert('切换后默认请求走新激活服务商（mock B）', r7.status === 200 && readLog(path.join(dataTmp2, 'mockB.log')).split('\n').filter((l) => l.includes('model=test-active-model')).length >= 1);
+    assert('切换已持久化到 providers.json', JSON.parse(fs.readFileSync(path.join(dataTmp2, 'providers.json'), 'utf8')).active === 'mockb');
+    const bad = await (await fetch(`http://127.0.0.1:${PP}/api/provider`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'nope' }) })).status;
+    assert('切换到未知服务商返回 400', bad === 400);
+
+    // 8) byProvider 统计
+    const st = await (await fetch(`http://127.0.0.1:${PP}/api/stats?days=30`)).json();
+    const bp = Object.fromEntries((st.byProvider || []).map((r) => [r.name, r.requests]));
+    assert('byProvider 统计正确（stepfun=1, mockb=3, deepseek=1）',
+      bp.stepfun === 1 && bp.mockb === 3 && bp.deepseek === 1, JSON.stringify(bp));
+    assert('byProvider token 汇总与总计一致',
+      (st.byProvider || []).reduce((s, r) => s + r.total, 0) === st.total.total, `providers=${(st.byProvider || []).reduce((s, r) => s + r.total, 0)} total=${st.total.total}`);
+    assert('stats.meta 含激活服务商信息', st.meta.provider === 'mockb' && st.meta.providerName === 'Mock B' && Array.isArray(st.meta.providers));
+  } catch (e) {
+    assert('多服务商运行时段无异常', false, (e && e.message) || String(e));
+  } finally {
+    for (const c of [mockA, mockB, proxy2]) { try { c.kill('SIGKILL'); } catch { /* ignore */ } }
+    try { fs.rmSync(dataTmp, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(dataTmp2, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 
   OUT.push('');
   OUT.push(`静态+运行时断言：${checks.filter(([, ok]) => ok).length}/${checks.length} 通过`);

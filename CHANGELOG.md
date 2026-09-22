@@ -1,5 +1,21 @@
 # 更新日志
 
+> 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
+
+## v1.5.5（多服务商支持 + 服务商一键切换）
+
+### 新增
+- **多服务商支持**：内置 7 家 OpenAI 兼容服务商（StepFun / 智谱 GLM / DeepSeek / Kimi Moonshot / MiniMax / 通义千问 Qwen / 零一万物 Yi）；数据目录放置 `providers.json` 可添加任意自定义 OpenAI 兼容网关，或按 key 覆盖内置服务商的 `baseUrl` / `apiKey` / `modelPrefixes`。
+- **四级路由优先级**（前一级命中即不再向下匹配）：路径前缀 `/p/<key>/v1/...`（转发时自动剥除前缀）> 请求头 `X-Provider: <key>` > 模型名前缀（`modelPrefixes`）> 激活默认；未知 key 返回 400 + 合法服务商列表，不静默落默认。
+- **密钥按服务商注入**：客户端未带 `Authorization` 时按 `providers.json` apiKey > 环境变量注入（`STEPFUN_API_KEY` / `GLM_API_KEY` / `DEEPSEEK_API_KEY` / `MOONSHOT_API_KEY` / `MINIMAX_API_KEY` / `DASHSCOPE_API_KEY` / `YI_API_KEY`）；`TARGET_URL` 仍仅覆盖 StepFun（旧用法有效）。
+- **仪表盘服务商切换器**：顶栏一键切换（乐观 UI + 失败回滚），激活项持久化 `providers.json`；新增服务商用量表面板与页脚当前服务商显示；底栏布局隐藏切换器、小窗布局隐藏服务商表。
+- **统计与查询**：`usage.jsonl` 记录新增 `provider` 字段（旧记录归入 stepfun，向后兼容）；`/api/stats` 新增 `byProvider` 与 `meta.provider` / `meta.providers`；MCP `query_stepfun_usage` 支持 `group="provider"`；新增 `GET /api/providers` 与 `POST /api/provider`。
+- VSIX 扩展重建为 `stepfun-monitor-1.5.5.vsix`；并行回放按服务商聚合。
+- 测试：`test/v15-check.mjs` 扩充为 76 项静态+运行时断言（多服务商路由/切换/byProvider）；`browser-smoke` 增至 60 项（含切换器真机断言）。
+
+### 修复
+- **升级路径快照兼容**：v1.5.0 及更早版本的 `aggregate.json` 快照不含 `byProvider` 字段，直接沿用会导致服务商分组统计为空。现仅信任 v3+ 快照；对「请求数 > 0 但 byProvider 为空」的损坏快照自动全量回放重建（一次性开销）。
+
 ## v1.5.0（GitHub URL 直载 + 三种浏览布局 + VS Code 系扩展）
 
 ### 新增

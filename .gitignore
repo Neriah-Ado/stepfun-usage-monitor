@@ -32,6 +32,9 @@ test/final-status.mjs
 test/final-verify.mjs
 test/version-check.mjs
 test/release-notes*.md
+test/fetch-releases.mjs
+test/update-old-releases.mjs
+test/parse-rel*.mjs
 
 # 操作系统
 Thumbs.db

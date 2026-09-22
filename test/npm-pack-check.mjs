@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * v1.5.0 npx 直载链路验证：npm pack → tarball 内容 → tarball 安装 → bin 双模式运行 → 数据目录解析
+ * v1.5.5 npx 直载链路验证：npm pack → tarball 内容 → tarball 安装 → bin 双模式运行 → 数据目录解析
  * 结果写入 test/pack-check.txt（本机 PowerShell 无 stdout，统一文件化输出）。
  */
 import { execFileSync, spawn, execSync } from 'node:child_process';
@@ -20,7 +20,7 @@ let tmp;
 try {
   /* ===== 1. npm pack ===== */
   execSync(`"${NPM}" pack --pack-destination "${ROOT}"`, { cwd: ROOT, stdio: 'pipe' });
-  const tgz = path.join(ROOT, 'stepfun-usage-monitor-1.5.0.tgz');
+  const tgz = path.join(ROOT, 'stepfun-usage-monitor-1.5.5.tgz');
   ok('npm pack 生成 tarball', fs.existsSync(tgz), fs.existsSync(tgz) ? fs.statSync(tgz).size + 'B' : 'missing');
 
   /* ===== 2. tarball 内容完整性 ===== */
@@ -29,9 +29,11 @@ try {
   const listing = execSync(`"${TAR}" -tzf "${tgz}"`, { encoding: 'utf8' });
   const need = [
     'package/package.json', 'package/proxy.mjs', 'package/mcp-server.mjs', 'package/stats.mjs',
-    'package/dashboard.html', 'package/bin/cli.mjs', 'package/lib/paths.mjs', 'package/lib/replay-worker.mjs',
+    'package/dashboard.html', 'package/bin/cli.mjs', 'package/lib/paths.mjs', 'package/lib/providers.mjs',
+    'package/lib/replay-worker.mjs',
     'package/zcode/command-sfm.md', 'package/start.cmd', 'package/open-window.cmd', 'package/open-panel.cmd',
-    'package/README.md', 'package/LICENSE', 'package/CHANGELOG.md',
+    'package/README.md', 'package/README.en.md', 'package/docs/releases/v1.5.5.md',
+    'package/LICENSE', 'package/CHANGELOG.md',
   ];
   const missing = need.filter((f) => !listing.includes(f));
   ok('tarball 含全部运行文件', missing.length === 0, missing.length ? '缺 ' + missing.join(',') : `${need.length} 个文件`);
@@ -72,7 +74,7 @@ try {
     } catch { /* 未就绪 */ }
   }
   ok('安装后 bin 默认模式可启动', !!health && health.ok === true, health ? 'v' + health.version : 'no response');
-  ok('/healthz 版本 1.5.0', !!health && health.version === '1.5.0');
+  ok('/healthz 版本 1.5.5', !!health && health.version === '1.5.5');
   if (health) {
     html = await (await fetch('http://127.0.0.1:8792/')).text();
     lite = await (await fetch('http://127.0.0.1:8792/api/stats?days=30&lite=1')).json();
@@ -80,7 +82,7 @@ try {
   }
   ok('仪表盘 HTML 含布局脚本', html.includes('URLSearchParams(location.search)') && html.includes('data-layout'));
   ok('lite 载荷 200 且结构正确', !!lite && Array.isArray(lite.byDay) && !!lite.meta);
-  ok('完整载荷 200 且 meta.version=1.5.0', !!stats && stats.meta && stats.meta.version === '1.5.0');
+  ok('完整载荷 200 且 meta.version=1.5.5', !!stats && stats.meta && stats.meta.version === '1.5.5');
   ok('数据目录落 DATA_DIR（启动即创建；usage.jsonl 首条记录时追加）',
     fs.existsSync(dataTmp), fs.existsSync(dataTmp) ? 'dir ok' : 'dir missing');
   try { child.kill('SIGKILL'); } catch { /* 已退出 */ }
@@ -92,7 +94,7 @@ try {
   });
   const mcpMsg = JSON.parse(mcpOut.split('\n').find((l) => l.includes('"id":1')) || '{}');
   ok('--mcp 模式 initialize 应答', mcpMsg.result && mcpMsg.result.serverInfo, mcpMsg.result ? 'v' + mcpMsg.result.serverInfo.version : 'none');
-  ok('--mcp serverInfo.version=1.5.0', mcpMsg.result && mcpMsg.result.serverInfo && mcpMsg.result.serverInfo.version === '1.5.0');
+  ok('--mcp serverInfo.version=1.5.5', mcpMsg.result && mcpMsg.result.serverInfo && mcpMsg.result.serverInfo.version === '1.5.5');
 
   OUT.push(`\n临时目录：${tmp}`);
   OUT.push('RESULT: ' + (OUT.some((l) => l.startsWith('FAIL')) ? 'FAIL' : 'ALL-PASS'));
@@ -101,6 +103,6 @@ try {
   OUT.push('RESULT: FAIL');
 } finally {
   try { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 清理失败不影响结果 */ }
-  try { fs.rmSync(path.join(ROOT, 'stepfun-usage-monitor-1.5.0.tgz'), { force: true }); } catch { /* ignore */ }
+  try { fs.rmSync(path.join(ROOT, 'stepfun-usage-monitor-1.5.5.tgz'), { force: true }); } catch { /* ignore */ }
 }
 fs.writeFileSync(path.join(__dirname, 'pack-check.txt'), OUT.join('\n') + '\n');

@@ -2,14 +2,16 @@
 
 统计 StepFun API（阶跃星辰，OpenAI 兼容接口）的 Token 用量。**零 npm 依赖、常驻内存通常 < 60MB、所有数据仅存本地**，通过「本地反向代理」方式接入，因此天然兼容几乎所有 Agent / 客户端。
 
-**v1.5.0**：支持 `npx -y github:Neriah-Ado/stepfun-usage-monitor` 从 GitHub URL 直接拉起（无需 clone、无需 npm install）；仪表盘新增 **完整页 / 小窗 / 底部横条** 三种浏览布局，可嵌入 ZCode、VS Code 系 IDE 或独立浏览器使用。
+**v1.5.5**：支持**多服务商**——同一个代理实例内一键切换 StepFun / 智谱 GLM / DeepSeek / Kimi / MiniMax / 通义千问 / 零一万物等 OpenAI 兼容 API（也可自定义任意网关），用量按服务商分组统计。完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)。
+
+> **[English README](README.en.md)** · 本文档为中文版。
 
 ## 架构
 
 ```
 ┌─────────────┐   Base URL 指向本地    ┌────────────────────────┐   转发(透传)   ┌──────────────────┐
-│  ZCode      │ ────────────────────▶ │  本地代理 proxy.mjs     │ ────────────▶ │ api.stepfun.com  │
-│  Cline      │  127.0.0.1:8787/v1/…  │  · 流式/非流式解析usage  │  原样返回      │                  │
+│  ZCode      │ ────────────────────▶ │  本地代理 proxy.mjs     │ ────────────▶ │ 激活服务商上游    │
+│  Cline      │  127.0.0.1:8787/v1/…  │  · 流式/非流式解析usage  │  原样返回      │ (stepfun/GLM/…)  │
 │  Continue … │ ◀──────────────────── │  · 增量聚合 + 环形缓冲   │ ◀──────────── │                  │
 └─────────────┘                       │  · 仪表盘 + 统计API      │               └──────────────────┘
                                       └───────┬─────────────────┘
@@ -23,6 +25,35 @@
 - **兼容性**：任何支持自定义 OpenAI 兼容 Base URL 的客户端均可接入（ZCode、Cline、Roo Code、Continue、Cursor、Cherry Studio、ChatBox、LobeChat、Open WebUI、Dify、LangChain/LiteLLM、openai-python/node SDK 等）；支持 MCP 的 Agent（ZCode 等）还可通过内置 MCP Server 直接对话查询。
 - **低开销**：Node 单进程、流式响应逐块直通（旁路扫描 usage，不缓冲不落盘中间数据），无数据库、无 Electron、无后台轮询。
 - **全本地**：用量逐条追加写入 `usage.jsonl`（每行一条 JSON，崩溃安全）；聚合快照 `aggregate.json` 仅含统计数字，不含密钥与请求正文。
+
+## 多服务商支持（v1.5.5）
+
+同一个代理实例可服务多家大模型服务商，**无需起多个实例、无需改客户端配置**：
+
+- **内置 7 家**：StepFun 阶跃星辰 / 智谱 GLM / DeepSeek / Kimi Moonshot / MiniMax / 通义千问 Qwen / 零一万物 Yi（均为官方 OpenAI 兼容端点）。
+- **自定义服务商**：在数据目录放一份 `providers.json`，可添加任意 OpenAI 兼容网关，也可按 key 覆盖内置服务商的 `baseUrl` / `apiKey` / `modelPrefixes`：
+
+```json
+{
+  "active": "deepseek",
+  "providers": [
+    { "key": "my-gateway", "name": "我的网关", "baseUrl": "https://gw.example.com/v1", "apiKey": "sk-...", "modelPrefixes": ["gw-"] }
+  ]
+}
+```
+
+- **路由优先级**（前一级命中即不再向下匹配）：
+
+| 优先级 | 方式 | 示例 |
+|---|---|---|
+| 1 | 路径前缀 `/p/<key>/v1/...`（转发时自动剥除前缀） | `/p/deepseek/v1/chat/completions` |
+| 2 | 请求头 `X-Provider: <key>` | 适合不方便改路径的客户端 |
+| 3 | 模型名前缀命中服务商 `modelPrefixes` | `deepseek-chat` → deepseek |
+| 4 | 激活默认 | 仪表盘顶栏一键切换，或 `POST /api/provider` |
+
+- **密钥注入**：客户端未带 `Authorization` 时，按 `providers.json` 的 `apiKey` > 环境变量顺序注入（见「环境变量」一节）；`TARGET_URL` 仍可覆盖 StepFun 的 baseUrl。
+- **未知 key 不静默**：路径前缀 / 请求头 / 切换请求指定了未知服务商时返回 400 + 合法服务商列表。
+- **按服务商统计**：仪表盘新增服务商切换器与服务商用量表面板；`/api/stats` 新增 `byProvider` 分组；MCP 查询支持 `group="provider"`。
 
 ## 安装（三种方式，任选其一）
 
@@ -42,7 +73,7 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 ```
 
 - 首次运行 npx 自动从 GitHub 下载并缓存，之后秒启；运行所需文件与 `bin/cli.mjs` 统一入口见 `package.json` 的 `bin` / `files` 字段。
-- **数据目录与 npm 缓存解耦**：npx 运行时数据统一落在 `~/.stepfun-usage-monitor/`（Windows 为 `C:\Users\<你>\.stepfun-usage-monitor\`），npm 缓存被清理不影响历史数据；目录解析优先级：`DATA_DIR` 环境变量 > `~/.stepfun-usage-monitor/`（存在即用）> 包内 `data/`（检测到历史 `usage.jsonl` 时原地兼容）。
+- **数据目录与 npm 缓存解耦**：npx 运行时数据统一落在 `~/.stepfun-usage-monitor/`（Windows 为 `C:\Users\<你>\.stepfun-usage-monitor\`），npm 缓存被清理不影响历史数据；目录解析优先级：`DATA_DIR` 环境变量 > `~/.stepfun-usage-monitor/`（存在即用）> 包内 `data/`（检测到历史 `usage.jsonl` 时原地兼容）。`providers.json` 同样放在数据目录。
 
 **ZCode 接入（MCP 对话查询）**：ZCode → 设置 → MCP 服务器 → 添加，JSON 模式填入：
 
@@ -72,8 +103,8 @@ npx -y github:Neriah-Ado/stepfun-usage-monitor --port 8788 --data-dir D:\sfm-dat
 
 适用于 VS Code 及其分支（Cursor、VSCodium 等）：在 IDE 内直接浏览仪表盘，支持 **底边栏面板 / 小窗 / 独立浏览器页** 三种方式；代理未运行时可自动 `npx` 从 GitHub 拉起（`stepfunMonitor.autoStart`，默认开启）。
 
-1. 从 GitHub Release 下载 `stepfun-monitor-1.5.0.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
-2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.0.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
+1. 从 GitHub Release 下载 `stepfun-monitor-1.5.5.vsix`（仓库 `ide-extension/dist/` 内亦有同名文件）。
+2. 安装：命令行 `code --install-extension stepfun-monitor-1.5.5.vsix`，或扩展面板右上角 `…` → **从 VSIX 安装…**。
 3. 命令面板（Ctrl+Shift+P）可用命令：
    - **StepFun 监控：显示底边栏面板** — 底边栏内嵌仪表盘（`?layout=panel`）
    - **StepFun 监控：小窗打开** — 独立编辑器小窗（`?layout=window`）
@@ -103,7 +134,7 @@ start.cmd          :: 或 node proxy.mjs
 3. 在 Agent 里把 Base URL 改为 `http://127.0.0.1:8787/v1`（API Key 填原来的 StepFun Key，保持不变）。
 4. MCP 配置也可用手动安装写法：`"command": "node", "args": ["<本目录绝对路径>\\mcp-server.mjs"]`。
 
-> 手动安装的历史用户（仓库 `data/` 已有 `usage.jsonl`）升级到 v1.5.0 后仍原地读写原目录，数据不迁移；手动安装与 npx 直载混用时，请用 `DATA_DIR` 显式指向同一目录。
+> 手动安装的历史用户（仓库 `data/` 已有 `usage.jsonl`）升级后仍原地读写原目录，数据不迁移；手动安装与 npx 直载混用时，请用 `DATA_DIR` 显式指向同一目录。
 
 ## 仪表盘的三种浏览方式
 
@@ -111,7 +142,7 @@ start.cmd          :: 或 node proxy.mjs
 
 | 方式 | 入口 | 内容 | 适合 |
 |---|---|---|---|
-| **完整页** | `http://127.0.0.1:8787/` | 全部功能：KPI、图表、排行、最近请求、3 档性能模式 | 桌面浏览器 |
+| **完整页** | `http://127.0.0.1:8787/` | 全部功能：KPI、图表、排行、最近请求、3 档性能模式、服务商切换 | 桌面浏览器 |
 | **小窗** | `/?layout=window` 或双击 `open-window.cmd` | KPI + 图表（隐藏长表格） | 悬浮窗 / 分屏 |
 | **底部横条** | `/?layout=panel` 或双击 `open-panel.cmd` | 超紧凑 KPI 横条（整页高约 220px，走 lite 精简载荷） | 贴边停靠 / 常驻 |
 
@@ -165,7 +196,7 @@ start.cmd          :: 或 node proxy.mjs
 
 **冷启动**
 1. 先 `listen` 再后台加载历史——旧版必须同步解析完全部日志才能接受连接，新版启动即可服务，统计随后补齐。
-2. 聚合快照 `aggregate.json`（含已消费的字节偏移）：重启时只读快照 + 回放尾部增量，不再全量重放；日志被截断/清空时自动回退全量重建。
+2. 聚合快照 `aggregate.json`（含已消费的字节偏移）：重启时只读快照 + 回放尾部增量，不再全量重放；日志被截断/清空时自动回退全量重建。v1.5.5 起仅信任含 `byProvider` 的 v3+ 快照，旧版快照首次启动时自动全量重建。
 3. **worker 线程并行回放**：按行边界把日志切成 N 段（默认 `min(CPU-1, 4)` 线程）并行聚合再合并；并行与顺序回放结果经逐字段校验完全一致（`npm run test:parity`），任一线程失败自动回退单线程。
 4. 回放按行切分并定期让出事件循环，加载期间在途请求延迟不受影响；日键记忆化避免反复构造 `Date`。
 
@@ -196,6 +227,7 @@ start.cmd          :: 或 node proxy.mjs
 
 > 通用原则：把客户端里 `https://api.stepfun.com` 替换为 `http://127.0.0.1:8787`，路径 `/v1/...` 与密钥都不变。
 > 客户端可通过请求头 `X-Agent: 某名称` 自定义在仪表盘中显示的名称；未设置时按 User-Agent 自动识别。
+> 想改用其他服务商（GLM / DeepSeek / Kimi 等）时，用仪表盘顶栏切换器一键切换，或用 `/p/<key>/v1/...` 路径前缀 / `X-Provider` 请求头按请求路由，详见「多服务商支持」。
 
 ## MCP 接入（ZCode / Claude Code 等，对话式查询）
 
@@ -214,16 +246,22 @@ start.cmd          :: 或 node proxy.mjs
 
 手动安装等价写法：`"command": "node", "args": ["<本目录绝对路径>\\mcp-server.mjs"]`。
 
-之后即可在对话中直接问：「查一下我最近 7 天的 StepFun token 用量，按模型分组」——Agent 会调用 `query_stepfun_usage(days=7, group="model")` 工具返回统计。
+之后即可在对话中直接问：「查一下我最近 7 天的 StepFun token 用量，按模型分组」——Agent 会调用 `query_stepfun_usage(days=7, group="model")` 工具返回统计。v1.5.5 起 `group` 还支持 `"provider"`（按服务商分组）。
 
 ## 环境变量（均可选）
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `PORT` | `8787` | 代理监听端口 |
-| `TARGET_URL` | `https://api.stepfun.com` | 上游地址（也可指向其他 OpenAI 兼容服务商做多服务商统计） |
-| `DATA_DIR` | 按 `lib/paths.mjs` 解析 | 本地数据目录：显式指定最优先；npx 直载默认 `~/.stepfun-usage-monitor/`；手动安装检测到 `data/usage.jsonl` 时沿用原目录 |
-| `STEPFUN_API_KEY` | 无 | 设置后：客户端未带 Authorization 时自动注入（客户端可不配 Key） |
+| `TARGET_URL` | `https://api.stepfun.com` | 仅覆盖 StepFun 服务商的 baseUrl（兼容旧用法）；其他服务商请在 `providers.json` 中配置 |
+| `DATA_DIR` | 按 `lib/paths.mjs` 解析 | 本地数据目录：显式指定最优先；npx 直载默认 `~/.stepfun-usage-monitor/`；手动安装检测到 `data/usage.jsonl` 时沿用原目录。`providers.json` 也存放在此 |
+| `STEPFUN_API_KEY` | 无 | 设置后：客户端未带 Authorization 时自动注入 StepFun 密钥 |
+| `GLM_API_KEY` / `BIGMODEL_API_KEY` | 无 | 智谱 GLM 密钥（任一即可） |
+| `DEEPSEEK_API_KEY` | 无 | DeepSeek 密钥 |
+| `MOONSHOT_API_KEY` / `KIMI_API_KEY` | 无 | Kimi Moonshot 密钥（任一即可） |
+| `MINIMAX_API_KEY` | 无 | MiniMax 密钥 |
+| `DASHSCOPE_API_KEY` | 无 | 通义千问 Qwen 密钥 |
+| `YI_API_KEY` / `LINGYIWANWU_API_KEY` | 无 | 零一万物 Yi 密钥（任一即可） |
 | `DISABLE_USAGE_INJECT` | 未设置 | 设为 `1` 关闭流式请求的 `stream_options.include_usage` 自动注入 |
 | `SNAPSHOT_MS` | `20000` | 聚合快照落盘间隔（ms）；另有 ≥3s 节流落盘与加载完成即落盘 |
 | `DISABLE_SNAPSHOT` | 未设置 | 设为 `1` 完全关闭快照（每次启动全量回放） |
@@ -234,31 +272,34 @@ start.cmd          :: 或 node proxy.mjs
 | `MEMORY_SOFT_LIMIT_MB` | `384` | RSS 软阈值，超过则裁剪最近请求缓冲并落盘快照 |
 
 > 说明：StepFun 遵循 OpenAI 规范，流式响应默认**不返回** usage，除非请求带 `stream_options.include_usage=true`。代理会自动为流式请求注入该字段（不产生任何计费影响）；若某上游不认该字段返回 400，代理会自动回退重发原始请求。
+> 密钥注入优先级：`providers.json` 内的 `apiKey` > 上表所列环境变量；客户端自己带了 `Authorization` 时以客户端为准。
 
 ## 数据与隐私
 
 - 数据文件：`<数据目录>/usage.jsonl`，每行一条记录，字段示例：
 
   ```json
-  {"ts":"2026-09-22T00:30:12.345Z","agent":"ZCode/智谱","path":"/v1/chat/completions","model":"step-2-16k","status":200,"prompt_tokens":120,"completion_tokens":80,"total_tokens":200,"latency_ms":812}
+  {"ts":"2026-09-22T00:30:12.345Z","agent":"ZCode/智谱","provider":"stepfun","path":"/v1/chat/completions","model":"step-2-16k","status":200,"prompt_tokens":120,"completion_tokens":80,"total_tokens":200,"latency_ms":812}
   ```
 
-- **不记录**请求/响应正文、Authorization、API Key；仅记录时间、客户端、模型、token 数、状态码、耗时。
-- `aggregate.json`：聚合快照（仅统计数字 + 已消费字节偏移），用于加速冷启动；删除后会自动全量重建。
+- **不记录**请求/响应正文、Authorization、API Key；仅记录时间、客户端、服务商、模型、token 数、状态码、耗时。
+- `aggregate.json`：聚合快照（仅统计数字 + 已消费字节偏移），用于加速冷启动；删除后会自动全量重建。v1.5.0 及更早版本的旧快照会被忽略并按新格式重建。
 - 备份：直接复制数据目录即可。清空：`POST http://127.0.0.1:8787/api/clear`。
 
 ## 本地接口一览
 
 | 接口 | 说明 |
 |---|---|
-| `GET /` | 仪表盘完整页（每日柱状图、模型/客户端排行、最近请求、内存/连接数） |
+| `GET /` | 仪表盘完整页（每日柱状图、模型/客户端/服务商排行、最近请求、内存/连接数） |
 | `GET /?layout=window` | 小窗布局（KPI + 图表） |
 | `GET /?layout=panel` | 底部横条布局（超紧凑 KPI，走 lite 精简载荷） |
 | `GET /` 仪表盘内 | 鹈鹕测试一键复制：点击「提示」按钮或提示文本复制测试提示词（桌面/移动端均可） |
-| `GET /api/stats?days=30` | JSON 统计聚合（读内存聚合，O(桶数)） |
+| `GET /api/stats?days=30` | JSON 统计聚合（读内存聚合，O(桶数)；含 `byProvider` 分组与当前服务商信息） |
 | `GET /api/stats?days=14&lite=1` | **精简载荷**：模型/客户端各 5 条、最近 6 条、至多 14 天（轻量档与底栏布局使用） |
+| `GET /api/providers` | 服务商列表（key/名称/baseUrl/是否内置/是否已配密钥；**不含任何密钥**） |
+| `POST /api/provider` | 一键切换激活服务商，body `{"key":"deepseek"}`；未知 key 返回 400 + 合法列表 |
 | `GET /api/logs?limit=500` | 最近请求（环形缓冲，最多 `RECENT_MAX` 条） |
-| `GET /healthz` | 健康检查（含 `loading` 标记，可用于等待历史加载完成） |
+| `GET /healthz` | 健康检查（含 `loading` 标记与当前激活服务商，可用于等待历史加载完成） |
 | `POST /api/snapshot` | 立即 flush 日志并落盘聚合快照 |
 | `POST /api/clear` | 清空本地数据（明细 + 快照 + 内存聚合） |
 
@@ -269,8 +310,9 @@ stepfun-usage-monitor/
 ├─ proxy.mjs           核心：本地反代 + usage 解析 + 增量聚合 + 快照 + 仪表盘服务（零依赖）
 ├─ bin/cli.mjs         统一 CLI 入口：默认代理模式 / --mcp 模式（npx 直载入口）
 ├─ lib/paths.mjs       数据目录解析（npx 直载 / 手动安装统一规则）
+├─ lib/providers.mjs   多服务商注册表与四级路由（v1.5.5）
 ├─ lib/replay-worker.mjs  历史并行回放 worker（worker_threads）
-├─ dashboard.html      仪表盘页面（纯本地，无任何 CDN 外链；支持 ?layout= 三种布局）
+├─ dashboard.html      仪表盘页面（纯本地，无任何 CDN 外链；支持 ?layout= 三种布局 + 服务商切换器）
 ├─ mcp-server.mjs      MCP Server：Agent 对话式查询用量
 ├─ stats.mjs           终端报表：node stats.mjs [天数]
 ├─ start.cmd           一键启动（Windows 双击即可）
@@ -279,10 +321,12 @@ stepfun-usage-monitor/
 ├─ zcode/command-sfm.md  ZCode 自定义命令（/sfm 快捷查询）
 ├─ ide-extension/      VS Code 系扩展（底边栏/小窗/浏览器三模式 + 状态栏）
 │  ├─ package.json / extension.js / media/chart.svg
-│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.0.vsix
-│  └─ dist/stepfun-monitor-1.5.0.vsix  可直接安装
+│  ├─ test/build-vsix.mjs 引用其产出 → dist/stepfun-monitor-1.5.5.vsix
+│  └─ dist/stepfun-monitor-1.5.5.vsix  可直接安装
+├─ docs/releases/      各版本双语 Release Notes（中文 + English）
 ├─ data/usage.jsonl    用量明细（追加写，首次运行自动创建；手动安装默认位置）
 ├─ data/aggregate.json 聚合快照（自动生成，可删除）
+├─ data/providers.json 服务商配置（可选；npx 直载时位于 ~/.stepfun-usage-monitor/）
 ├─ demo-data/          演示数据（`npm run seed` 生成，仅用于预览仪表盘，可随时删除）
 └─ test/               测试 / 基准脚本
    ├─ run-e2e.mjs          端到端测试（mock 上游 + 流式/非流式/回退用例）
@@ -291,10 +335,10 @@ stepfun-usage-monitor/
    ├─ verify-ui.mjs        仪表盘 / CLI 报表校验
    ├─ ui-perf-check.mjs    v1.4.0 交互性能 / 3 档性能模式的静态断言与载荷实测
    ├─ ui-feature-check.mjs v1.3.0 鹈鹕测试一键复制的静态断言
-   ├─ v15-check.mjs        v1.5.0 直载/布局/扩展/数据目录断言（40 项）
+   ├─ v15-check.mjs        v1.5.5 多服务商/直载/布局/扩展/数据目录断言（76 项静态+运行时）
    ├─ npm-pack-check.mjs   v1.5.0 npx 直载链路验证（npm pack → 安装 → 双模式运行，15 项）
    ├─ build-vsix.mjs       零依赖 VSIX 打包（ZIP 写入 + CRC32 + 自校验）
-   ├─ browser-smoke.mjs    v1.4.0 起真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，零依赖）
+   ├─ browser-smoke.mjs    真实浏览器运行时校验（CDP 驱动本机 Chrome/Edge，含三种布局/三档性能/服务商切换，60 项）
    ├─ replay-parity.mjs    并行回放 vs 顺序回放一致性校验
    ├─ bench.mjs            性能基准（冷启动 / 内存 / 并发，输出 bench-result.txt）
    ├─ seed-demo.mjs        生成演示数据
@@ -309,10 +353,10 @@ node test/mcp-test.mjs                :: MCP：initialize / tools/list / tools/c
 node test/verify-ui.mjs               :: 仪表盘可访问性与 CLI 报表格式
 node test/ui-perf-check.mjs           :: 3 档性能模式、等待动画、lite 精简载荷断言
 node test/ui-feature-check.mjs        :: 鹈鹕测试一键复制的静态断言
-node test/v15-check.mjs               :: v1.5.0：GitHub 直载、三种布局、扩展、数据目录（40 项静态+运行时）
+node test/v15-check.mjs               :: v1.5.5：多服务商路由/切换/byProvider、GitHub 直载、三种布局、扩展、数据目录（76 项静态+运行时）
 node test/npm-pack-check.mjs          :: v1.5.0：npm pack → tarball 安装 → bin 双模式真实运行（15 项）
 node test/build-vsix.mjs              :: 构建 VSIX（ide-extension/dist/）
-node test/browser-smoke.mjs           :: 真实浏览器运行时校验，含三种布局与三档性能（需本机 Chrome 或 Edge）
+node test/browser-smoke.mjs           :: 真实浏览器运行时校验，含三种布局、三档性能与服务商切换（需本机 Chrome 或 Edge）
 node test/replay-parity.mjs           :: 并行回放 vs 顺序回放：聚合结果逐字段一致性（需先跑 bench）
 node test/bench.mjs                   :: 性能基准（生成 20 万条数据，输出 test/bench-result.txt）
 node test/seed-demo.mjs demo-data     :: 重新生成演示数据
@@ -328,9 +372,10 @@ set PORT=8787 && set DATA_DIR=demo-data && node proxy.mjs
 
 - **端口被占用**：设置 `PORT=8788` 后重启，客户端 Base URL 同步修改。
 - **流式对话没统计到 tokens**：确认未设置 `DISABLE_USAGE_INJECT=1`；个别极老客户端自行剥离了 `stream_options`，可在客户端设置里开启「统计用量/usage」类选项。
-- **想同时统计其他服务商**：另起一个实例，例如 `set TARGET_URL=https://api.moonshot.cn && set PORT=8788 && node proxy.mjs`，数据目录可用 `DATA_DIR` 分开。
+- **想同时统计其他服务商（GLM / DeepSeek / Kimi…）**：无需再起第二个实例——在仪表盘顶栏切换器一键切换激活服务商；或按请求用 `/p/<key>/v1/...` 路径前缀、`X-Provider: <key>` 请求头路由；也可在 `providers.json` 里添加自定义网关。详见「多服务商支持」。
 - **同一数据目录不要多实例同时写**：快照的字节偏移假设单写者；多实例请用不同 `DATA_DIR`。
 - **npx 直载和手动安装的数据在哪**：npx 直载默认 `~/.stepfun-usage-monitor/`；手动安装沿用仓库 `data/`（存在历史数据时）。两者混用请显式设置 `DATA_DIR` 统一。
 - **强制退出（直接关闭窗口）会丢最后几秒明细**：快照每 ≥3s 节流落盘，重启后仅需回放极短尾部；正常关闭（Ctrl+C）会立即落盘。
+- **从 v1.5.0 升级后服务商用量表是空的**：旧版快照不含按服务商的分组数据，首次启动会自动全量回放重建（一次性），之后恢复正常。
 - **历史很大时想更快**：调大 `REPLAY_WORKERS`（默认 4）；或保留 `aggregate.json` 让下次启动走快照路径。
 - **性能**：20 万条历史下常驻内存约 56MB、`/api/stats` 约 0.45ms、300 并发吞吐约 1456 req/s；单请求额外开销 < 1ms（不含网络）。详见 `npm run bench` 输出。

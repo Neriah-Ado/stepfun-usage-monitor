@@ -102,12 +102,15 @@ try {
   if (!CHROME) throw new Error('未找到 Chrome/Edge');
   log('浏览器: ' + CHROME);
 
+  // v1.5.5：清理可能残留的服务商切换状态，保证默认激活 stepfun（demo-data 已被 gitignore）
+  try { fs.rmSync(path.join(ROOT, 'demo-data', 'providers.json'), { force: true }); } catch { /* ignore */ }
+
   proxy = spawn(NODE, [path.join(ROOT, 'proxy.mjs')], {
     env: { ...process.env, PORT: String(PORT), DATA_DIR: path.join(ROOT, 'demo-data') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const z = await waitHttp(`http://127.0.0.1:${PORT}/healthz`);
-  assert('代理就绪且版本 1.5.0', z && z.version === '1.5.0', z ? 'version=' + z.version : 'no response');
+  assert('代理就绪且版本 1.5.5', z && z.version === '1.5.5', z ? 'version=' + z.version : 'no response');
   if (!z) throw new Error('代理未就绪');
 
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-prof-'));
@@ -160,9 +163,29 @@ try {
   assert('模型排行有数据行', (await cdp.eval("document.querySelectorAll('#tb-model tr').length")) > 0);
   assert('最近请求有数据行', (await cdp.eval("document.querySelectorAll('#tb-recent tr').length")) > 0);
   const sub91 = await cdp.eval("document.querySelector('#sub').textContent");
-  assert('页脚显示 v1.5.0 与轮询间隔', sub91.includes('v1.5.0') && sub91.includes('30s'), sub91.slice(0, 90));
+  assert('页脚显示 v1.5.5 与轮询间隔', sub91.includes('v1.5.5') && sub91.includes('30s'), sub91.slice(0, 90));
   const s1 = await shot('shot-balanced.png');
   log('截图: ' + s1);
+
+  /* ===== 1b. v1.5.5 服务商切换器 ===== */
+  assert('服务商切换器可见且默认激活 StepFun',
+    (await cdp.eval("getComputedStyle(document.querySelector('#prov-bar')).display")) !== 'none'
+    && (await cdp.eval("document.querySelector('#prov-current').textContent")).includes('StepFun'));
+  const provItems = await cdp.eval("document.querySelectorAll('#prov-menu .prov-item').length");
+  assert('服务商菜单含全部内置服务商（≥7）', provItems >= 7, 'items=' + provItems);
+  await cdp.eval("document.querySelector('#prov-current').click()");
+  assert('点击展开服务商菜单', !(await cdp.eval("document.querySelector('#prov-menu').hasAttribute('hidden')")));
+  await cdp.eval("document.querySelector('#prov-menu .prov-item[data-key=\"deepseek\"]').click()");
+  await sleep(900);
+  const curAfter = await cdp.eval("document.querySelector('#prov-current').textContent");
+  assert('一键切换服务商生效（DeepSeek）', curAfter.includes('DeepSeek'), curAfter);
+  const subProv = await cdp.eval("document.querySelector('#sub').textContent");
+  assert('页脚同步显示当前服务商', subProv.includes('DeepSeek'), subProv.slice(0, 120));
+  const bpRows = await cdp.eval("document.querySelectorAll('#tb-provider tr').length");
+  assert('服务商用量表已渲染', bpRows > 0, 'rows=' + bpRows);
+  // 切回 stepfun，避免影响后续段落的默认态断言
+  await cdp.eval("document.querySelector('#prov-current').click(), document.querySelector('#prov-menu .prov-item[data-key=\"stepfun\"]').click()");
+  await sleep(900);
 
   /* ===== 2. 签名短路：重复刷新不应重建 DOM ===== */
   await cdp.eval("document.querySelector('#k-total').dataset.mark='1'");
@@ -221,6 +244,7 @@ try {
   assert('底栏 KPI 已渲染', /^[\d,]+$/.test(await cdp.eval("document.querySelector('#k-total').textContent")));
   assert('底栏性能档位栏已隐藏', (await cdp.eval("getComputedStyle(document.querySelector('#perf-bar')).display")) === 'none');
   assert('底栏长表格区已隐藏', (await cdp.eval("document.querySelector('#p-recent').offsetHeight")) === 0);
+  assert('底栏隐藏服务商切换器', (await cdp.eval("getComputedStyle(document.querySelector('#prov-bar')).display")) === 'none');
   assert('底栏模式自身切换链接隐藏', (await cdp.eval("getComputedStyle(document.querySelector('#lnk-panel')).display")) === 'none');
   assert('底栏提供独立浏览器入口', (await cdp.eval("getComputedStyle(document.querySelector('#btn-open')).display")) !== 'none');
   assert('底栏走 lite=1 精简载荷',
@@ -238,6 +262,7 @@ try {
   assert('小窗隐藏客户端排行', (await cdp.eval("getComputedStyle(document.querySelector('#p-agents')).display")) === 'none');
   assert('小窗隐藏最近请求', (await cdp.eval("getComputedStyle(document.querySelector('#p-recent')).display")) === 'none');
   assert('小窗隐藏提示面板', (await cdp.eval("getComputedStyle(document.querySelector('#hint-panel')).display")) === 'none');
+  assert('小窗隐藏服务商用量表', (await cdp.eval("getComputedStyle(document.querySelector('#p-providers')).display")) === 'none');
   const winH = await cdp.eval('document.body.scrollHeight');
   assert('小窗整页高度紧凑（< 760px）', winH < 760, 'scrollHeight=' + winH);
   const s5 = await shot('shot-window.png');
@@ -248,6 +273,8 @@ try {
   assert('完整页隐藏独立浏览器入口', (await cdp.eval("getComputedStyle(document.querySelector('#btn-open')).display")) === 'none');
   assert('完整页提供小窗/底栏入口',
     (await cdp.eval("getComputedStyle(document.querySelector('#lnk-window')).display !== 'none' && getComputedStyle(document.querySelector('#lnk-panel')).display !== 'none'")) === true);
+  assert('完整页显示服务商用量表面板',
+    (await cdp.eval("getComputedStyle(document.querySelector('#p-providers')).display")) !== 'none');
 
   /* ===== 5. 点击即时反馈（乐观 UI） ===== */
   const stubClipboard = async (source) => {

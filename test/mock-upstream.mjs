@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.MOCK_PORT || 18791);
 const DELAY = Number(process.env.MOCK_DELAY || 0);   // 模拟上游推理延迟（压测用）
+const LOG_FILE = process.env.MOCK_LOG || path.join(__dirname, 'mock-log.txt');   // v1.5.5：多实例可分离日志
 const logLines = [];
 const noLog = process.env.MOCK_NOLOG === '1';        // 压测时关闭日志写入
 
@@ -23,8 +24,8 @@ http.createServer((req, res) => {
     try { obj = JSON.parse(body); } catch { /* ignore */ }
     const model = obj.model || 'step-2-16k';
     if (!noLog) {
-      logLines.push(`${new Date().toISOString()} ${req.method} ${req.url} model=${model} stream=${!!obj.stream} stream_options=${JSON.stringify(obj.stream_options || null)}`);
-      fs.writeFileSync(path.join(__dirname, 'mock-log.txt'), logLines.join('\n') + '\n');
+      logLines.push(`${new Date().toISOString()} ${req.method} ${req.url} model=${model} stream=${!!obj.stream} stream_options=${JSON.stringify(obj.stream_options || null)} auth=${req.headers.authorization ? 'yes' : 'no'}`);
+      fs.writeFileSync(LOG_FILE, logLines.join('\n') + '\n');
     }
 
     if (req.url.includes('chat/completions') && obj.stream === true) {

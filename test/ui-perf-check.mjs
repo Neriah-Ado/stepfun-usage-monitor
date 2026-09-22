@@ -100,6 +100,17 @@ const checks = [
   ['v1.3.0 鹈鹕复制功能保留', /copyPelicanPrompt/.test(html) && /id="hint-btn"/.test(html) && /id="hint-chip"/.test(html) && /document\.execCommand\('copy'\)/.test(html)],
   ['提示面板仍位于 #app 之外', html.indexOf('id="hint-panel"') < html.indexOf('id="app"')],
 
+  // —— v1.5.5 多服务商切换器 ——
+  ['服务商切换器位于 #app 之外（自动刷新不重建）', /id="prov-bar"/.test(html) && html.indexOf('id="prov-bar"') < html.indexOf('id="app"')],
+  ['切换器无障碍语义（listbox/option/aria-haspopup/aria-expanded）',
+    /role="listbox"/.test(html) && /role="option"/.test(html) && /aria-haspopup="listbox"/.test(html) && /aria-expanded/.test(html)],
+  ['一键切换：POST /api/provider + 乐观 UI + 失败回滚',
+    /fetch\('\/api\/provider'/.test(html) && /provState\.active = key/.test(html) && /provState\.active = prev/.test(html)],
+  ['服务商用量表面板 + 独立签名短路', /id="p-providers"/.test(html) && /sigP !== lastSig\.provider/.test(html) && /id="tb-provider"/.test(html)],
+  ['页脚显示当前服务商', /providerName/.test(html) && /providerOrigin/.test(html)],
+  ['底栏隐藏切换器 / 小窗隐藏服务商表',
+    /html\[data-layout="panel"\] #prov-bar\{display:none\}/.test(html) && /html\[data-layout="window"\] #p-providers\{display:none!important\}/.test(html)],
+
   // —— 版本一致性（版本号跟随 package.json，跨版本回歸不误报）——
   ['proxy.mjs VERSION 为语义化版本', /const VERSION = '\d+\.\d+\.\d+'/.test(proxySrc)],
   ['package.json version 为语义化版本', /^\d+\.\d+\.\d+$/.test(String(pkg.version || ''))],

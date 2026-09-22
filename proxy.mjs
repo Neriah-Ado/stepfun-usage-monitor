@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
- * stepfun-usage-monitor — StepFun API Token 用量本地监控代理
+ * stepfun-usage-monitor — 大模型 API Token 用量本地监控代理（多服务商）
+ * v1.5.5 — 多服务商支持（一键切换 GLM/DeepSeek/Kimi/MiniMax/Qwen/Yi 等）+ byProvider 统计
  * v1.5.0 — GitHub URL 直载（npx）+ 仪表盘三种嵌入布局（完整页/小窗/底栏）+ 统一数据目录解析
  * v1.4.0 — 交互性能优化 + 轻量 / 进阶 / 极致 3 档性能模式
  *
- * 架构：Agent → http://127.0.0.1:<PORT>/v1/... → 本地代理 → https://api.stepfun.com/v1/...
+ * 架构：Agent → http://127.0.0.1:<PORT>/v1/... → 本地代理 → <激活服务商>/v1/...
+ *       v1.5.5 起路由优先级：/p/<key>/v1 路径前缀 > X-Provider 请求头 > 模型名前缀 > 激活默认
+ *       （见 lib/providers.mjs）
  *
  * 性能设计要点：
  *   [冷启动] ① 先 listen 再后台增量加载历史；② 聚合快照 aggregate.json（含字节偏移），
@@ -18,9 +21,12 @@
  *   [交互]   v1.4.0：/api/stats?lite=1 精简载荷（模型/客户端各 5 条、最近 6 条、至多 14 天），
  *            供仪表盘「轻量」档位使用，减少 JSON 序列化、传输与前端解析开销。
  *
- * 环境变量：PORT / TARGET_URL / DATA_DIR / STEPFUN_API_KEY / DISABLE_USAGE_INJECT
+ * 环境变量：PORT / TARGET_URL / DATA_DIR / DISABLE_USAGE_INJECT
  *          SNAPSHOT_MS(20000) / DISABLE_SNAPSHOT / RECENT_MAX(200) / MAX_SOCKETS(256)
  *          MAX_INJECT_BYTES(1048576) / MEMORY_SOFT_LIMIT_MB(384)
+ *          v1.5.5 起 TARGET_URL 仅覆盖 stepfun 服务商 baseUrl；各服务商密钥环境变量
+ *          （STEPFUN_API_KEY / GLM_API_KEY / DEEPSEEK_API_KEY / MOONSHOT_API_KEY /
+ *           MINIMAX_API_KEY / DASHSCOPE_API_KEY / YI_API_KEY）见 lib/providers.mjs
  */
 import http from 'node:http';
 import https from 'node:https';
@@ -30,6 +36,7 @@ import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import { resolveDataDir } from './lib/paths.mjs';
+import { loadProviderState, providerKeyFor } from './lib/providers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -42,7 +49,6 @@ const SNAP_FILE = path.join(DATA_DIR, 'aggregate.json');
 const DASHBOARD_FILE = path.join(__dirname, 'dashboard.html');
 
 const INJECT_USAGE = process.env.DISABLE_USAGE_INJECT !== '1';
-const PASSTHROUGH_KEY = process.env.STEPFUN_API_KEY || '';
 
 const SNAPSHOT_MS = Math.max(Number(process.env.SNAPSHOT_MS || 20000), 1000);
 const SNAPSHOT_OFF = process.env.DISABLE_SNAPSHOT === '1';
@@ -57,10 +63,13 @@ const PARALLEL_MIN_BYTES = 4 * 1024 * 1024;                  // 小于 4MB 时�
 const SSE_BUF_LIMIT = 8192;
 const PENDING_MAX = 50000;
 const DAY_KEEP_DAYS = 400;
-const VERSION = '1.5.0';
+const VERSION = '1.5.5';
 const BOOT_T0 = Date.now();
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+
+/* v1.5.5：多服务商注册表（providers.json 持久化激活项与用户覆盖） */
+const PV = loadProviderState(DATA_DIR);
 
 /* ==================== 上游连接池（并发优化） ==================== */
 const HTTP_AGENT = new http.Agent({ keepAlive: true, maxSockets: MAX_SOCKETS, maxFreeSockets: 64, scheduling: 'lifo', timeout: 90000 });
@@ -71,6 +80,7 @@ const totals = { requests: 0, errors: 0, prompt: 0, completion: 0, total: 0 };
 const byDay = new Map();
 const byModel = new Map();
 const byAgent = new Map();
+const byProvider = new Map();   // v1.5.5：按服务商分组（旧记录无 provider 字段时归入 stepfun）
 
 // 最近请求定长环形缓冲：内存恒定 O(RECENT_MAX)
 const recent = new Array(RECENT_MAX);
@@ -119,6 +129,7 @@ function applyRecord(rec) {
   if (ts) bump(byDay, dayKeyOf(rec.ts, ts), p, c, t);
   if (rec.model) bump(byModel, rec.model, p, c, t);
   bump(byAgent, rec.agent || '未知客户端', p, c, t);
+  bump(byProvider, rec.provider || 'stepfun', p, c, t);   // v1.5.5
   recentPush(rec);
 }
 
@@ -128,15 +139,17 @@ function cloneAgg() {
     byDay: new Map([...byDay].map(([k, v]) => [k, { ...v }])),
     byModel: new Map([...byModel].map(([k, v]) => [k, { ...v }])),
     byAgent: new Map([...byAgent].map(([k, v]) => [k, { ...v }])),
+    byProvider: new Map([...byProvider].map(([k, v]) => [k, { ...v }])),
     recent: recentList(RECENT_MAX),
   };
 }
 function restoreAgg(s) {
   Object.assign(totals, s.total || {});
-  byDay.clear(); byModel.clear(); byAgent.clear();
+  byDay.clear(); byModel.clear(); byAgent.clear(); byProvider.clear();
   for (const [k, v] of s.byDay || []) byDay.set(k, v);
   for (const [k, v] of s.byModel || []) byModel.set(k, v);
   for (const [k, v] of s.byAgent || []) byAgent.set(k, v);
+  for (const [k, v] of s.byProvider || []) byProvider.set(k, v);   // v2 快照无此字段 → 空表，向后兼容
   recentCount = 0; recentHead = 0;
   for (const r of s.recent || []) recentPush(r);
 }
@@ -196,10 +209,10 @@ async function writeSnapshot(force = false) {
     const cutoff = dayKey(Date.now() - DAY_KEEP_DAYS * 86400000);
     for (const k of byDay.keys()) if (k < cutoff) byDay.delete(k);
     const payload = {
-      v: 2, ts: new Date().toISOString(), consumedBytes: snapBaseBytes, droppedLines,
+      v: 3, ts: new Date().toISOString(), consumedBytes: snapBaseBytes, droppedLines,
       total: snapBase.total,
       byDay: [...snapBase.byDay], byModel: [...snapBase.byModel], byAgent: [...snapBase.byAgent],
-      recent: snapBase.recent.slice(-RECENT_MAX),
+      byProvider: [...snapBase.byProvider], recent: snapBase.recent.slice(-RECENT_MAX),
     };
     await fs.promises.writeFile(tmp, JSON.stringify(payload));
     await fs.promises.rename(tmp, SNAP_FILE);
@@ -215,7 +228,12 @@ function fileSize(p) { try { return fs.statSync(p).size; } catch { return 0; } }
 function readSnapshotSync() {
   try {
     const s = JSON.parse(fs.readFileSync(SNAP_FILE, 'utf8'));
-    return s && typeof s.consumedBytes === 'number' ? s : null;
+    if (!s || typeof s.consumedBytes !== 'number') return null;
+    // v1.5.5：v3 起快照才含 byProvider；旧版（v1/v2）快照忽略之，全量回放重建服务商分组
+    if ((s.v || 0) < 3) return null;
+    // 自愈：请求数 > 0 但 byProvider 为空属损坏快照（升级残留），同样全量回放重建
+    if ((s.total && s.total.requests > 0) && !(s.byProvider || []).length) return null;
+    return s;
   } catch { return null; }
 }
 
@@ -288,6 +306,7 @@ function mergePartial(parts) {
     for (const [k, v] of p.byDay) { const b = byDay.get(k); if (b) { b.requests += v.requests; b.prompt += v.prompt; b.completion += v.completion; b.total += v.total; } else byDay.set(k, v); }
     for (const [k, v] of p.byModel) { const b = byModel.get(k); if (b) { b.requests += v.requests; b.prompt += v.prompt; b.completion += v.completion; b.total += v.total; } else byModel.set(k, v); }
     for (const [k, v] of p.byAgent) { const b = byAgent.get(k); if (b) { b.requests += v.requests; b.prompt += v.prompt; b.completion += v.completion; b.total += v.total; } else byAgent.set(k, v); }
+    for (const [k, v] of p.byProvider || []) { const b = byProvider.get(k); if (b) { b.requests += v.requests; b.prompt += v.prompt; b.completion += v.completion; b.total += v.total; } else byProvider.set(k, v); }
     merged.push(...p.recents);
     if (merged.length > RECENT_MAX * 2) merged.splice(0, merged.length - RECENT_MAX);
     dropped += p.error ? 1 : 0;
@@ -307,7 +326,7 @@ async function replayParallel(start, end) {
   if (parts.length !== bounds.length - 1) {
     console.warn(`[history] 并行回放不完整（${parts.length}/${bounds.length - 1}），回退单线程重建`);
     totals.requests = totals.errors = totals.prompt = totals.completion = totals.total = 0;
-    byDay.clear(); byModel.clear(); byAgent.clear(); recentCount = 0; recentHead = 0;
+    byDay.clear(); byModel.clear(); byAgent.clear(); byProvider.clear(); recentCount = 0; recentHead = 0;
     await replay(start, end);
     return 1;
   }
@@ -409,26 +428,30 @@ function normalizeUsage(u, model) {
 const STREAM_TRUE_RE = /"stream"\s*:\s*true/;
 const MODEL_RE = /"model"\s*:\s*"([^"\\]{0,64})"/;
 
-function upstreamHeaders(srcHeaders, contentLength) {
+function upstreamHeaders(srcHeaders, contentLength, provider, target) {
   const h = { ...srcHeaders };
-  h.host = TARGET.host;
+  h.host = target.host;
   h['accept-encoding'] = 'identity';       // 明文便于解析 usage
   delete h['transfer-encoding'];
   if (contentLength != null) h['content-length'] = String(contentLength);
   else delete h['content-length'];
-  if (PASSTHROUGH_KEY && !h.authorization) h.authorization = `Bearer ${PASSTHROUGH_KEY}`;
+  if (!h.authorization) {                  // v1.5.5：按服务商注入密钥（文件 apiKey > 环境变量）
+    const key = providerKeyFor(provider);
+    if (key) h.authorization = `Bearer ${key}`;
+  }
   return h;
 }
 
 function buildRequest(opts, headers, onResponse) {
-  return (TARGET.protocol === 'https:' ? https : http).request({
-    protocol: TARGET.protocol,
-    hostname: TARGET.hostname,
-    port: TARGET.port || (TARGET.protocol === 'https:' ? 443 : 80),
+  const target = opts.target;
+  return (target.protocol === 'https:' ? https : http).request({
+    protocol: target.protocol,
+    hostname: target.hostname,
+    port: target.port || (target.protocol === 'https:' ? 443 : 80),
     path: opts.path,
     method: opts.method,
     headers,
-    agent: TARGET.protocol === 'https:' ? HTTPS_AGENT : HTTP_AGENT,
+    agent: target.protocol === 'https:' ? HTTPS_AGENT : HTTP_AGENT,
     timeout: 600000,
   }, onResponse);
 }
@@ -438,6 +461,7 @@ function finalize(opts, status, usage) {
   saveRecord({
     ts: new Date().toISOString(),
     agent: opts.agent,
+    provider: opts.providerKey || 'stepfun',   // v1.5.5：服务商分组
     path: opts.path.split('?')[0],
     model: (usage && usage.model) || opts.model || '',
     status,
@@ -466,7 +490,7 @@ function handleUpstreamResponse(upRes, clientReq, clientRes, opts) {
   if (opts.injected && status === 400 && isJson) {
     upRes.resume();
     console.log('[fallback] 上游拒绝 stream_options，已回退为原始请求重发');
-    const headers = upstreamHeaders(opts.headers, opts.originalBody.length);
+    const headers = upstreamHeaders(opts.headers, opts.originalBody.length, opts.provider, opts.target);
     const upReq = buildRequest(opts, headers, (r2) => handleUpstreamResponse(r2, clientReq, clientRes, { ...opts, injected: false }));
     upReq.on('error', (err) => proxyError(clientRes, opts, err));
     clientRes.on('close', () => { if (!clientRes.writableEnded) upReq.destroy(); });
@@ -516,7 +540,7 @@ function handleUpstreamResponse(upRes, clientReq, clientRes, opts) {
 
 /** 小请求体：可注入 stream_options、解析 model、解析响应 usage */
 function forwardBuffered(clientReq, clientRes, body, opts) {
-  const headers = upstreamHeaders(opts.headers, body.length);
+  const headers = upstreamHeaders(opts.headers, body.length, opts.provider, opts.target);
   const upReq = buildRequest(opts, headers, (upRes) => handleUpstreamResponse(upRes, clientReq, clientRes, opts));
   upReq.on('timeout', () => upReq.destroy(new Error('upstream timeout')));
   upReq.on('error', (err) => proxyError(clientRes, opts, err));
@@ -526,7 +550,7 @@ function forwardBuffered(clientReq, clientRes, body, opts) {
 
 /** 大请求体：直接流式透传（不占内存、不注入、不解析请求体），响应侧仍统计 usage */
 function forwardStreamed(clientReq, clientRes, opts) {
-  const headers = upstreamHeaders(opts.headers, null);   // 走 chunked，不做长度改写
+  const headers = upstreamHeaders(opts.headers, null, opts.provider, opts.target);   // 走 chunked，不做长度改写
   const upReq = buildRequest(opts, headers, (upRes) => handleUpstreamResponse(upRes, clientReq, clientRes, opts));
   upReq.on('timeout', () => upReq.destroy(new Error('upstream timeout')));
   upReq.on('error', (err) => proxyError(clientRes, opts, err));
@@ -549,6 +573,7 @@ function statsFor(days, lite) {
   // v1.4.0：lite=1 精简载荷（前端「轻量」档位使用）——减少 JSON.stringify 与前端解析成本
   const topN = lite ? 5 : 50;
   const recentN = lite ? 6 : 50;
+  const activeP = PV.activeProvider();
   return {
     days,
     total: {
@@ -558,9 +583,13 @@ function statsFor(days, lite) {
     byDay: series.filter((d) => d.day >= cutoff),
     byModel: sortDesc(byModel).slice(0, topN),
     byAgent: sortDesc(byAgent).slice(0, topN),
+    byProvider: sortDesc(byProvider).slice(0, topN),   // v1.5.5：按服务商分组
     recent: recentList(recentN),
     meta: {
       target: TARGET.origin, port: PORT, version: VERSION,
+      provider: PV.activeKey(), providerName: activeP ? activeP.name : '',
+      providerOrigin: activeP ? activeP.target.origin : TARGET.origin,
+      providers: PV.publicInfo().providers,
       requests: totals.requests, file: LOG_FILE,
       loading, snapshot: !SNAPSHOT_OFF,
       droppedLines, recentMax: RECENT_MAX, maxSockets: MAX_SOCKETS,
@@ -598,7 +627,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(buf);
   }
-  if (url === '/healthz') return sendJson(res, 200, { ok: true, version: VERSION, loading, records: totals.requests });
+  if (url === '/healthz') return sendJson(res, 200, { ok: true, version: VERSION, loading, records: totals.requests, provider: PV.activeKey() });
   // 浏览器自动请求的图标：本地应答，绝不转发到上游（避免无谓的上游请求与 404 噪声）
   if (url === '/favicon.ico' || url === '/robots.txt') { res.writeHead(204); return res.end(); }
   if (url.startsWith('/api/stats')) {
@@ -613,9 +642,27 @@ const server = http.createServer(async (req, res) => {
     const rows = recentList(Math.min(limit, RECENT_MAX));
     return sendJson(res, 200, { count: rows.length, rows, note: `仅保留最近 ${RECENT_MAX} 条（环形缓冲，内存恒定）` });
   }
+  // v1.5.5：服务商列表（供仪表盘切换器；不含任何密钥）
+  if (pn === '/api/providers') return sendJson(res, 200, PV.publicInfo());
+  // v1.5.5：一键切换激活服务商 { key }
+  if (pn === '/api/provider' && req.method === 'POST') {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      let key = '';
+      try { key = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}').key || ''; } catch { /* 非 JSON */ }
+      if (PV.setActive(key)) {
+        const p = PV.activeProvider();
+        console.log(`[provider] 激活服务商切换为 ${p.key} → ${p.baseUrl}`);
+        return sendJson(res, 200, { ok: true, active: PV.activeKey(), provider: { key: p.key, name: p.name, baseUrl: p.baseUrl } });
+      }
+      return sendJson(res, 400, { error: `未知服务商: ${key}`, valid: PV.keys() });
+    });
+    return;
+  }
   if (url === '/api/clear' && req.method === 'POST') {
     totals.requests = totals.errors = totals.prompt = totals.completion = totals.total = 0;
-    byDay.clear(); byModel.clear(); byAgent.clear();
+    byDay.clear(); byModel.clear(); byAgent.clear(); byProvider.clear();
     recentCount = 0; recentHead = 0;
     try { fs.writeFileSync(LOG_FILE, ''); fs.rmSync(SNAP_FILE, { force: true }); } catch { /* ignore */ }
     fileBase = 0; writtenBytes = 0; snapBase = cloneAgg(); snapBaseBytes = 0; snapDirty = true;
@@ -632,9 +679,16 @@ const server = http.createServer(async (req, res) => {
   const agent = detectAgent(req);
   const isChat = /\/(chat\/completions|completions|responses)(\?|$)/.test(url);
   const len = Number(req.headers['content-length'] || 0);
-  const opts = { headers: req.headers, path: url, method: req.method, agent, model: '', start, injected: false, originalBody: null };
+  // v1.5.5：多服务商路由（路径前缀 /p/<key> > X-Provider 头 > 模型名前缀 > 激活默认）
+  const route = PV.resolve(url, pn, req.headers, '');
+  if (route.error) return sendJson(res, 400, { error: { message: route.error, type: 'unknown_provider' }, valid_providers: route.valid });
+  const opts = {
+    headers: req.headers, path: route.forwardPath, method: req.method, agent,
+    provider: route.provider, providerKey: route.provider.key, target: route.target,
+    model: '', start, injected: false, originalBody: null, routeSource: route.source,
+  };
 
-  // 快速路径：大请求体直接流式透传（内存与并发双优化）
+  // 快速路径：大请求体直接流式透传（内存与并发双优化；请求体不解析，模型名前缀路由不适用）
   if (len > MAX_INJECT_BYTES) return forwardStreamed(req, res, opts);
 
   const chunks = [];
@@ -659,6 +713,13 @@ const server = http.createServer(async (req, res) => {
     if (!opts.model && raw.length) {
       const m = MODEL_RE.exec(raw);
       if (m) opts.model = m[1];
+    }
+    // v1.5.5：前面未显式指定服务商时，按模型名前缀复核路由（如 deepseek-chat → deepseek）
+    if (opts.routeSource === 'active' && opts.model) {
+      const r2 = PV.resolve(url, pn, req.headers, opts.model);
+      if (!r2.error && r2.source === 'model') {
+        opts.provider = r2.provider; opts.providerKey = r2.provider.key; opts.target = r2.target;
+      }
     }
     forwardBuffered(req, res, body, opts);
   });
@@ -701,11 +762,13 @@ if (process.platform === 'win32') process.on('SIGBREAK', () => shutdown('SIGBREA
 
 /* ==================== 启动：先可服务，再后台加载历史（冷启动优化） ==================== */
 server.listen(PORT, '127.0.0.1', () => {
+  const ap = PV.activeProvider();
   console.log('==============================================================');
-  console.log(`  StepFun API Token 用量监控代理  v${VERSION}  (零依赖 · 数据全本地)`);
+  console.log(`  大模型 API Token 用量监控代理  v${VERSION}  (零依赖 · 数据全本地 · 多服务商)`);
   console.log(`  监听就绪   : ${Date.now() - BOOT_T0} ms（模块加载→监听，不含 Node 自身启动）`);
   console.log(`  监听地址   : http://127.0.0.1:${PORT}`);
-  console.log(`  上游目标   : ${TARGET.origin}`);
+  console.log(`  上游目标   : ${TARGET.origin}（stepfun 默认；TARGET_URL 可覆盖）`);
+  console.log(`  激活服务商 : ${ap.name} (${ap.key}) → ${ap.baseUrl}（共 ${PV.keys().length} 家可用，仪表盘一键切换）`);
   console.log(`  仪表盘     : http://127.0.0.1:${PORT}/`);
   console.log(`  数据文件   : ${LOG_FILE}`);
   console.log(`  性能参数   : 连接池 ${MAX_SOCKETS} · 环形缓冲 ${RECENT_MAX} · 快照 ${SNAPSHOT_OFF ? '关闭' : SNAPSHOT_MS + 'ms'} · 大体积直通 >${Math.round(MAX_INJECT_BYTES / 1024)}KB`);
