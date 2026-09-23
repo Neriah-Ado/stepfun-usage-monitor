@@ -1,21 +1,25 @@
 {
-  "name": "stepfun-usage-monitor-market",
-  "description": "StepFun / 多服务商 API Token 用量本地监控插件市场：MCP 对话查询 + 屏幕底部吸附弹窗 + 独立浏览器完整仪表盘（零依赖、数据全本地）",
+  "name": "tps-local-marketplace",
+  "description": "本地插件市场:自建 ZCode 插件(吞吐监控等)。",
+  "owner": {
+    "name": "Administrator"
+  },
   "plugins": [
     {
-      "name": "stepfun-usage-monitor",
-      "source": "./plugins/stepfun-usage-monitor",
-      "version": "1.5.11",
+      "name": "zcode-tps-monitor",
+      "source": "./plugins/zcode-tps-monitor",
+      "description": "TPS 吞吐监控:每轮回复结束显示本轮即时速率 + 实时监控大屏 + /tps 命令 + MCP 工具;支持配置真实指标接口或使用演示数据。",
+      "version": "0.8.2",
+      "author": {
+        "name": "Administrator"
+      },
+      "icon": "https://gcore.jsdelivr.net/gh/shy3130/zcode-tps-monitor@29f1a35/assets/icon.png",
       "category": "monitoring",
-      "tags": [
-        "stepfun",
-        "token",
-        "usage",
+      "keywords": [
+        "tps",
         "monitor",
-        "mcp",
-        "llm",
-        "openai-compatible",
-        "local-first"
+        "metrics",
+        "performance"
       ]
     }
   ]

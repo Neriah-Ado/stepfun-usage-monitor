@@ -1,43 +1,4 @@
-# 依赖与运行时数据
-node_modules/
-data/
-demo-data/
 *.log
-
-# 测试与基准产物（均可由 test/*.mjs 重新生成）
-test/*.txt
-test/*.json
-test/e2e-data/
-test/anthropic-data/
-test/repro-data/
-test/bench-*.jsonl
-test/bench-old/
-test/bench-new/
-test/bench-old-empty/
-test/bench-new-empty/
-test/bench-logs/
-test/bench-old-proxy.mjs
-test/parity-serial/
-test/parity-parallel/
-test/mock-log.txt
-test/smoke.mjs
-test/dash-inline.js
-test/shots/
-
-# 本地专用脚本（含本机绝对路径与端口，不入库）
-test/publish*.mjs
-test/prep*.mjs
-test/net-diag*.mjs
-test/verify-publish.mjs
-test/final-status.mjs
-test/final-verify.mjs
-test/version-check.mjs
-test/release-notes*.md
-test/fetch-releases.mjs
-test/update-old-releases.mjs
-test/parse-rel*.mjs
-
-# 操作系统
-Thumbs.db
 .DS_Store
-desktop.ini
+Thumbs.db
+node_modules/

@@ -1,3 +1,0 @@
-runtime 同步自仓库根（版本 1.5.11）
-同步脚本：test/sync-plugin-runtime.mjs
-勿手改本目录，改仓库根对应文件后重跑同步脚本。
