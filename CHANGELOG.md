@@ -1,4 +1,27 @@
-# Changelog
+# 更新日志
+
+> 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
+
+## v2.0.0（按 zcode-tps-monitor 完整重构：ZCode 原生 Token 速率监控插件）
+
+### 修复
+- **接入必须改客户端 Base URL 并经本地代理转发**：v1.x 以本地反向代理（`127.0.0.1:8787`）作为唯一记账入口，客户端需把 Base URL 指向代理并在 `providers.json` 按服务商覆盖 baseUrl / apiKey——多一跳进程多一处失效点，代理未起时请求全部失败。V2.0.0 废弃代理架构，改为只读 ZCode 自带 usage 数据库（默认 `~/.zcode/cli/db/db.sqlite`，可用 `ZCODE_USAGE_DB` 覆盖），安装即用、客户端零配置。
+- **速率展示滞后、「上轮」与「本轮」口径易混淆**：v1.x 依赖模型转发或入库后采样，展示的常是上一条回复的数据，多段轮次无统一口径。V2.0.0 注册 `Stop` 钩子，在回复结束瞬间按最新 `turn_id` 圈定本轮全部请求（含多段），以「总产出 / 总纯生成时长」加权，经 `systemMessage` 由客户端直接渲染，从机制上消除滞后。
+- **运行时依赖重、安装态与仓库代码易脱节**：v1.x 需 `npx` 拉取运行时 + Python statusbar 常驻进程，安装态 runtime 还要手工同步校验。V2.0.0 全部实现为零依赖纯 `.mjs`（Node 内置 `node:sqlite` / `node:http`），无常驻进程（大屏空闲 3 小时自退）。
+
+### 新增
+- **每轮即时速率行（Stop 钩子，默认开启）**：回复结束自动显示本轮即时 tok/s、首字时间（TTFT）、输出 tokens、纯生成时长、请求段数 / 段内峰值、近几次滑动均值、会话累计输出、采样时刻；速率分子纳入思考 token，多段轮次加权并剔除段间工具等待。
+- **实时监控大屏**：`/dashboard` 打开暗色运维风面板，每秒刷新，空闲 3 小时自退，默认 `127.0.0.1:7423`。
+- **斜杠命令**：`/tps` 即时快照、`/tps 10` 采样 10 秒（2–30）、`/tps-doctor` 环境自检（`--json`，失败退出码 1）。
+- **MCP 工具** `tps_snapshot` / `tps_watch`：标准 stdio 服务器，版本号自动读取 `plugin.json`。
+- **Windows 桌面悬浮条** `dashboard/overlay.ps1`。
+- **业务 TPS 监控（可选）**：`metrics_url` 指向任意 JSON 指标接口，字段名三级嵌套自适应；未配置用演示数据，与 Token 速率相互独立。
+- **单元测试**：`node --test` 10 条断言（数字换算 / 本轮查询 / doctor 夹具等）。
+
+### 版本
+- 仓库定位整体变更：由「StepFun API 用量本地代理」重构为「ZCode 会话级 Token 速率监控插件」，目录结构、技术栈与实现方式全部对齐上游 [shy3130/zcode-tps-monitor](https://github.com/shy3130/zcode-tps-monitor)；v1.x 代码保留于 git 历史（tag `v1.5.10`）。
+- `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` 统一升级 **2.0.0**。
+- README（中 / 英）按 V2.0.0 身份完整重写；恢复 `docs/releases/` 双语发布说明。
 
 ## 0.8.2 — 2026-09-12
 
