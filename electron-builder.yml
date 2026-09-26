@@ -46,6 +46,9 @@ portable:
 mac:
   icon: electron/build/icons/icon.icns
   category: public.app-category.developer-tools
+  # 未签名出包:CI 上 CSC_LINK 未配置时不可留空(env 里的空串会被当成签名文件路径
+  # 去加载,报 "not a file");需要签名时删除 identity: null 并注入 CSC_LINK 等变量。
+  identity: null
   target:
     - target: dmg
       arch: [x64, arm64]

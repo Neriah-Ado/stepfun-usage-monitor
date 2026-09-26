@@ -48,12 +48,11 @@ jobs:
         run: npx electron-builder ${{ matrix.args }} ${{ github.event_name == 'workflow_dispatch' && '--publish never' || '--publish always' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS 签名/公证(可选):在仓库 Settings → Secrets 配置后自动生效
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # 未配置签名 secret 时不出签名包(mac.identity: null + 关闭自动发现)。
+          # 注意:不能写 CSC_LINK: ${{ secrets.CSC_LINK }} —— secret 缺失时展开为空串,
+          # electron-builder 会把空串当签名文件路径加载而报 "not a file"(V2.4.0 实测)。
+          # 需要签名时在此显式加回 CSC_LINK / CSC_KEY_PASSWORD / APPLE_ID 等变量。
+          CSC_IDENTITY_AUTO_DISCOVERY: false
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}
