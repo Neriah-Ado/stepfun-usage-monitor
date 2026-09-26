@@ -29,12 +29,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # arch 必须显式写在 CLI 上:给 --win/--mac/--linux 传 target 名时,
+          # electron-builder.yml 里 target.arch 的 [x64, arm64] 会被忽略,
+          # 只出 runner 本机架构(V2.4.0 首次实跑发现)。
           - os: windows-latest
-            args: --win nsis portable
+            args: --win nsis portable --x64 --arm64
           - os: macos-latest
-            args: --mac dmg
+            args: --mac dmg --x64 --arm64
           - os: ubuntu-latest
-            args: --linux AppImage
+            args: --linux AppImage --x64 --arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
