@@ -93,7 +93,8 @@ export async function sampleCpuPercent(intervalMs = 250) {
   return r1(clamp((1 - dIdle / dTotal) * 100, 0, 100));
 }
 
-async function systemMetrics() {
+// 系统指标:CPU 采样含 250ms 睡眠,调用方(SSE 采集器)需在窗口内缓存复用
+export async function systemMetrics() {
   const cpus = os.cpus().length;
   const cpuPercent = await sampleCpuPercent();
   const totalMB = os.totalmem() / 1048576;
@@ -164,6 +165,232 @@ export async function watch(seconds, env = process.env) {
     errorRateAvg: r2(avg("errorRate")),
     samples,
   };
+}
+
+// ---------- 多 agent 聚合查询层(V2.4.0) ----------
+// 把「按配置并发/顺序采集各客户端的本地用量数据 → 归一化 → 合并成一份视图」
+// 收在这一层,上层(CLI / 大屏 / MCP / Electron 悬浮条)只认同一组入口:
+//   aggregateRate / aggregateTurn / agentStatus
+// 设计约束(来自 V2.4.0 计划):
+//   - 默认 providers=["zcode"] 时走原路径(openUsageDb().query()/queryTurn()),
+//     与 V2.3.0 输出逐字节一致,只在结果上多一个 provider 字段,不引入额外开销;
+//   - 第三方源(Claude Code / Codex / OpenCode / Cline)一律 detect 闸门:没装就
+//     跳过并记原因,数据损坏只让那一个源不可用,其余源照常出数(故障隔离);
+//   - 全部只读本地文件,不联网;JSONL 只在命令/大屏/MCP 按需读取,带增量游标缓存。
+
+import { readConfig } from "./config.mjs";
+import { buildRateView, buildTurnView } from "./providers/common.mjs";
+import { PROVIDER_LABELS, createProvider, enabledProviderIds, normalizeProviderIds } from "./providers/index.mjs";
+
+// 合并视图时单个源最多取多少条归一化记录(足够覆盖窗口与近万级会话统计)
+const MAX_MERGE_RECORDS = 5000;
+
+const errMsg = (err) => (err && err.message ? err.message : String(err));
+
+// 单 zcode 源 → 原路径:不探测、不合并、不读配置文件以外的东西
+const isFastPath = (ids) => ids.length === 1 && ids[0] === "zcode";
+
+// agent 显式指定时只走那一个源(可用于 /tps --agent claude-code);
+// cfg 传 null 表示「不看配置文件」,缺省(undefined)时才读一次配置文件。
+function resolveIds(agent, cfg, env) {
+  if (agent) return normalizeProviderIds([agent]);
+  return enabledProviderIds(cfg === undefined ? readConfig() : cfg, env);
+}
+
+function safeCall(fn, fallback = null) {
+  try {
+    const v = fn();
+    return v == null ? fallback : v;
+  } catch {
+    return fallback;
+  }
+}
+
+// 探测单个源:返回 { id, provider, installed, detected, reason }
+// provider 为 null 表示这个源完全不可用(未知 id / 构造失败),reason 说明原因。
+function probeProvider(id, env) {
+  let p = null;
+  try {
+    p = createProvider(id, { env });
+  } catch (err) {
+    return { id, provider: null, installed: null, detected: false, reason: `数据源初始化失败:${errMsg(err)}` };
+  }
+  if (!p) return { id, provider: null, installed: null, detected: false, reason: `未知的 provider:${id}` };
+  const installed = safeCall(() => (typeof p.installed === "function" ? p.installed() : null));
+  // 宿主自己的库不设闸门:缺失/损坏按 V2.3.0 语义抛错,由调用方既有方式降级
+  if (p.strictRead) return { id, provider: p, installed, detected: true, reason: null };
+  const detected = safeCall(() => Boolean(p.detect()), false);
+  if (detected) return { id, provider: p, installed, detected: true, reason: null };
+  return {
+    id,
+    provider: p,
+    installed,
+    detected: false,
+    reason: installed ? "已安装该客户端,但本地还没有会话数据" : "未检测到该客户端的数据目录",
+  };
+}
+
+// 附加字段:provider 始终有(单源时即该源 id);sources/agents 只在多源时出现,
+// 免得默认配置下给每个消费者平白多背两份结构。
+function tag(view, providerId, sources, agents) {
+  const out = { ...view, provider: providerId };
+  if (sources) out.sources = sources;
+  if (agents) out.agents = agents;
+  return out;
+}
+
+function sourceEntry(probe, extra) {
+  const p = probe.provider;
+  return {
+    provider: probe.id,
+    label: p ? p.label : PROVIDER_LABELS[probe.id] || probe.id,
+    ok: Boolean(probe.detected),
+    format: p ? p.format : null,
+    ...(probe.reason ? { reason: probe.reason } : {}),
+    ...extra,
+  };
+}
+
+/** 速率视图(窗口内最近请求 + 会话累计 + 历史曲线)。 */
+export function aggregateRate({ sessionId = null, agent = null, cfg, env = process.env } = {}) {
+  const ids = resolveIds(agent, cfg, env);
+  if (isFastPath(ids)) {
+    const p = createProvider("zcode", { env });
+    return tag(p.rate(sessionId), "zcode");
+  }
+  const sources = [];
+  const agents = [];
+  const records = [];
+  let primary = null;
+  let firstError = null;
+  for (const id of ids) {
+    const probe = probeProvider(id, env);
+    if (!probe.provider) {
+      sources.push({ provider: id, ok: false, ...(probe.reason ? { reason: probe.reason } : {}) });
+      continue;
+    }
+    const p = probe.provider;
+    agents.push({ provider: id, label: p.label, capabilities: p.capabilities });
+    if (!probe.detected) {
+      sources.push(sourceEntry(probe));
+      continue;
+    }
+    let sid = null;
+    let count = 0;
+    try {
+      sid = sessionId || safeCall(() => p.currentSessionId());
+      const list = p.getUsage(sid, { limit: MAX_MERGE_RECORDS }) || [];
+      count = list.length;
+      for (const r of list) records.push(r);
+      if (!primary) primary = { id, sid };
+    } catch (err) {
+      if (!firstError) firstError = err;
+      sources.push(sourceEntry(probe, { ok: false, reason: `数据读取失败:${errMsg(err)}` }));
+      continue;
+    }
+    sources.push(sourceEntry(probe, { sessionId: sid, samples: count }));
+  }
+  // 归一化后合并:按完成时间倒序,再走与单源完全相同的窗口/会话统计构造
+  records.sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0));
+  const view = buildRateView(records, {
+    sessionId: primary ? primary.sid : sessionId,
+    scoped: sessionId ? "explicit" : "auto", // 与 usage-db.mjs resolveSession 的取值一致
+  });
+  if (!primary && firstError) throw firstError;
+  return tag(view, primary ? primary.id : null, sources, agents);
+}
+
+/** 本轮视图(一次用户轮次的全部请求)。多源时取「最近一个有本轮数据的源」。 */
+export function aggregateTurn({ sessionId = null, agent = null, current = false, cfg, env = process.env } = {}) {
+  const ids = resolveIds(agent, cfg, env);
+  if (isFastPath(ids)) {
+    const p = createProvider("zcode", { env });
+    return tag(p.turn(sessionId, { current }), "zcode");
+  }
+  const sources = [];
+  const agents = [];
+  let primary = null;
+  let newest = null;
+  let firstError = null;
+  for (const id of ids) {
+    const probe = probeProvider(id, env);
+    if (!probe.provider) {
+      sources.push({ provider: id, ok: false, ...(probe.reason ? { reason: probe.reason } : {}) });
+      continue;
+    }
+    const p = probe.provider;
+    agents.push({ provider: id, label: p.label, capabilities: p.capabilities });
+    if (!probe.detected) {
+      sources.push(sourceEntry(probe));
+      continue;
+    }
+    let sid = null;
+    let view = null;
+    try {
+      sid = sessionId || safeCall(() => p.currentSessionId());
+      view = p.turn(sid, { current });
+    } catch (err) {
+      if (!firstError) firstError = err;
+      sources.push(sourceEntry(probe, { ok: false, reason: `数据读取失败:${errMsg(err)}` }));
+      continue;
+    }
+    const lastAt = view && view.turn ? view.turn.lastAt : null;
+    if (!primary) primary = { id, view, sid };
+    if (lastAt != null && (!newest || lastAt > newest.lastAt)) newest = { id, view, sid, lastAt };
+    sources.push(sourceEntry(probe, { sessionId: sid, turnId: view ? view.turnId : null, lastAt }));
+  }
+  const chosen = newest || primary;
+  if (!chosen) {
+    if (firstError) throw firstError;
+    return tag({ sessionId: sessionId ?? null, turnId: null, turn: null, session: null }, null, sources, agents);
+  }
+  return tag(chosen.view, chosen.id, sources, agents);
+}
+
+/**
+ * 每个启用源的可用性(doctor 多源自检 / 大屏「数据源」面板 / MCP 的作用域字段共用)。
+ * 逐源独立探测与试读:任一源损坏只影响它自己那一项,不影响其他源的结论。
+ */
+export function agentStatus({ cfg, env = process.env } = {}) {
+  const ids = enabledProviderIds(cfg === undefined ? readConfig() : cfg, env);
+  const out = [];
+  for (const id of ids) {
+    const probe = probeProvider(id, env);
+    const entry = {
+      provider: id,
+      label: probe.provider ? probe.provider.label : PROVIDER_LABELS[id] || id,
+      source: probe.provider ? probe.provider.dataDir : null,
+      format: probe.provider ? probe.provider.format : null,
+      capabilities: probe.provider ? probe.provider.capabilities : null,
+      installed: probe.installed,
+      detected: Boolean(probe.detected),
+      ok: false,
+      reason: probe.reason,
+      sessionId: null,
+      sessions: null,
+      samples: null,
+      lastAt: null,
+      note: probe.provider ? probe.provider.note || null : null,
+    };
+    const p = probe.provider;
+    if (p && probe.detected) {
+      try {
+        const sessions = p.listSessions(20) || [];
+        entry.sessions = sessions.length;
+        entry.lastAt = sessions.length ? sessions[0].lastAt ?? null : null;
+        const sid = safeCall(() => p.currentSessionId());
+        entry.sessionId = sid ?? null;
+        entry.samples = sid ? (p.getUsage(sid, { limit: MAX_MERGE_RECORDS }) || []).length : 0;
+        entry.ok = true;
+        entry.reason = null;
+      } catch (err) {
+        entry.ok = false;
+        entry.reason = `数据读取失败:${errMsg(err)}`;
+      }
+    }
+    out.push(entry);
+  }
+  return out;
 }
 
 // ---------- 人类可读输出 ----------

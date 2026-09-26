@@ -11,7 +11,13 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { snapshot, watch, formatSnapshot, formatWatch } from "../scripts/lib/collect-core.mjs";
+import {
+  agentStatus,
+  snapshot,
+  watch,
+  formatSnapshot,
+  formatWatch,
+} from "../scripts/lib/collect-core.mjs";
 
 // 版本号自动跟随插件清单,避免与插件版本脱节
 const PLUGIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,17 +27,33 @@ try {
 } catch {}
 const SERVER_INFO = { name: "zcode-tps-monitor", version: VERSION };
 
+/**
+ * 本次调用对应的多 agent 作用域(V2.4.0):provider = 实际出数的数据源,
+ * sessionId = 该源的当前会话。只增字段 —— 默认 providers=["zcode"] 时
+ * provider 恒为 "zcode",老客户端忽略这两个字段时行为与 V2.3.0 完全一致。
+ * 探测本身失败不能让快照失败:退化为两个 null,由调用方按"无作用域"处理。
+ */
+function dataScope() {
+  try {
+    const list = agentStatus();
+    const hit = list.find((a) => a.ok) || list[0] || null;
+    return { provider: hit ? hit.provider : null, sessionId: hit ? hit.sessionId ?? null : null };
+  } catch {
+    return { provider: null, sessionId: null };
+  }
+}
+
 const TOOLS = [
   {
     name: "tps_snapshot",
     description:
-      "获取一次 TPS 吞吐快照:当前 TPS、延迟 p50/p95/p99、错误率,以及本机 CPU/内存使用。无需参数。",
+      "获取一次 TPS 吞吐快照:当前 TPS、延迟 p50/p95/p99、错误率,以及本机 CPU/内存使用。结果附带 provider / sessionId 两个字段,说明本次快照对应的客户端数据源与该源当前会话(默认 zcode)。无需参数。",
     inputSchema: { type: "object", properties: {} },
   },
   {
     name: "tps_watch",
     description:
-      "按秒采样观察 TPS 一段时间,返回平均/最小/最大与延迟、错误率统计。seconds: 2-30,默认 5。",
+      "按秒采样观察 TPS 一段时间,返回平均/最小/最大与延迟、错误率统计。seconds: 2-30,默认 5。结果同样附带 provider / sessionId 字段。",
     inputSchema: {
       type: "object",
       properties: {
@@ -79,11 +101,19 @@ async function handleRequest(msg) {
       try {
         if (name === "tps_snapshot") {
           const s = await snapshot();
-          ok(id, { content: [{ type: "text", text: formatSnapshot(s) }], isError: false });
+          ok(id, {
+            content: [{ type: "text", text: formatSnapshot(s) }],
+            isError: false,
+            ...dataScope(),
+          });
         } else if (name === "tps_watch") {
           const sec = Math.min(30, Math.max(2, Number(args.seconds) || 5));
           const w = await watch(sec);
-          ok(id, { content: [{ type: "text", text: formatWatch(w) }], isError: false });
+          ok(id, {
+            content: [{ type: "text", text: formatWatch(w) }],
+            isError: false,
+            ...dataScope(),
+          });
         } else {
           fail(id, -32601, `Unknown tool: ${name}`);
         }

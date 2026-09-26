@@ -12,7 +12,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { query, formatLine } from "../scripts/token-rate.mjs";
+import { openUsageDb } from "../scripts/lib/usage-db.mjs";
+import { timedRead } from "../scripts/lib/perf-log.mjs";
+import { formatLine } from "../scripts/token-rate.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RATE_SCRIPT = path.join(HERE, "..", "scripts", "token-rate.mjs");
@@ -62,7 +64,14 @@ try {
     emit("");
   } else {
     // 上一轮行仅作模型上下文(明确禁止引用);本问统计由模型收尾时按指令自测
-    emit(formatLine(query(sid || null)) + TURN_STATS_INSTRUCTION);
+    // 预编译语句 + 单连接:一次只读连接完成查询,并对该次读取计时(诊断日志)
+    const reader = openUsageDb();
+    try {
+      const r = timedRead("prompt-submit", () => reader.query(sid || null));
+      emit(formatLine(r) + TURN_STATS_INSTRUCTION);
+    } finally {
+      try { reader.close(); } catch {}
+    }
   }
 } catch {
   emit("");

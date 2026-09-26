@@ -7,7 +7,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { queryTurn, formatTurnLine } from "../scripts/token-rate.mjs";
+import { openUsageDb } from "../scripts/lib/usage-db.mjs";
+import { timedRead } from "../scripts/lib/perf-log.mjs";
+import { formatTurnLine } from "../scripts/token-rate.mjs";
 
 // stdin 是钩子入参 JSON(含 session_id);设超时兜底,客户端不给 stdin 也不挂起
 function readStdin() {
@@ -64,12 +66,19 @@ async function main() {
   const cfg = readConfig();
   if (cfg.tokenRateLine === false || cfg.stopHookLine === false) return;
 
-  // Stop 触发与末次请求写库之间存在毫秒级竞态,短重试直到本轮出现有效样本
+  // Stop 触发与末次请求写库之间存在毫秒级竞态,短重试直到本轮出现有效样本。
+  // 预编译语句 + 单连接:5 次重试复用同一只读连接与同一批 StatementSync。
   let r = null;
-  for (let i = 0; i < 5; i++) {
-    r = queryTurn(sid || null);
-    if (r.turn && r.turn.rated > 0) break;
-    if (i < 4) await new Promise((res) => setTimeout(res, 250));
+  let reader = null;
+  try {
+    reader = openUsageDb();
+    for (let i = 0; i < 5; i++) {
+      r = timedRead("stop", () => reader.queryTurn(sid || null));
+      if (r.turn && r.turn.rated > 0) break;
+      if (i < 4) await new Promise((res) => setTimeout(res, 250));
+    }
+  } catch {} finally {
+    try { reader && reader.close(); } catch {}
   }
   if (!r || !r.turn) return; // 无本轮数据(如中断轮)则不打扰
   process.stdout.write(JSON.stringify({ systemMessage: formatTurnLine(r) }));

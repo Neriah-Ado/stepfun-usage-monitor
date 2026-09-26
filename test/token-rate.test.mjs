@@ -20,6 +20,11 @@ process.env.TOKEN_RATE_WINDOW = "5";
 process.env.TOKEN_RATE_HIST = "10";
 process.env.TOKEN_RATE_MIN_MS = "100";
 process.env.TOKEN_RATE_MAX_MS = "60000";
+// 多源聚合层(V2.4.0)读取 ~/.zcode/tps-monitor.config.json 的 providers 字段:
+// 把 HOME/USERPROFILE 指到夹具目录,避免真实用户配置(比如启用过的其他客户端)
+// 把单源断言带进多源路径。config.mjs 在模块加载时解析该路径,必须在导入前设置。
+process.env.HOME = tmp;
+process.env.USERPROFILE = tmp;
 
 const { DatabaseSync } = await import("node:sqlite");
 {

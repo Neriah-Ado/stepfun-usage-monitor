@@ -1,0 +1,66 @@
+name: Release
+
+# 三平台桌面客户端打包(V2.3.0 Electron 客户端)。
+# 推 v* 标签时构建并发布到 GitHub Releases(electron-updater 据此自动更新);
+# 也可在 Actions 页手动触发,只出产物不发布(--publish never 由 workflow_dispatch 分支决定)。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 创建 Release / 上传产物
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      # 插件核心零依赖不变 + 纯逻辑回归:打包前先跑全量单测
+      - run: node --test
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win nsis portable
+          - os: macos-latest
+            args: --mac dmg
+          - os: ubuntu-latest
+            args: --linux AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      # 图标由纯 Node 生成并提交进仓库;这里重跑一次保证与 assets/generate-icon.mjs 同步
+      - run: npm run icons
+      - name: 打包(${{ matrix.args }})
+        run: npx electron-builder ${{ matrix.args }} ${{ github.event_name == 'workflow_dispatch' && '--publish never' || '--publish always' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 签名/公证(可选):在仓库 Settings → Secrets 配置后自动生效
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+            dist/*.blockmap
+            dist/latest*.yml
+          if-no-files-found: error

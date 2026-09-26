@@ -2,6 +2,112 @@
 
 > 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
 
+## v2.4.0（多 agent Provider 数据层：Claude Code / Codex / OpenCode / Cline）
+
+目标：把「只读 ZCode 自己的 usage 库」抽象成统一的 Provider 接口，让同一套速率口径也能覆盖 **Claude Code、Codex、OpenCode、Cline** 等客户端工具的本地 usage 数据；同时保持插件核心（hooks / scripts / mcp / commands / dashboard）零 npm 依赖、纯 Node，**默认配置下行为与 V2.3.0 完全一致**。本版只做**数据层与命令层**，多 agent 聚合展示 UI 留到 V2.5.0。
+
+### 新增
+- **Provider 接口**（`scripts/lib/providers/`，纯 Node、零依赖）：每个 Provider 声明 `id` / `label` / `capabilities`（`turnRate` / `ttft` / `sessionScope`），实现 `detect()`、`listSessions()`、`getUsage()`。归一化记录统一为 `tokens / 时间 / 模型 / turnKey` 四类字段，上游字段口径差异全部收口在 Provider 内部。
+- **五个内置数据源**：
+  - `zcode`：`~/.zcode/cli/db/db.sqlite` 的 `model_usage` 表——现有逻辑原样迁入，字段口径不变，`strictRead` 不设探测闸门（库缺失/损坏仍按 V2.3.0 语义抛错）。
+  - `claude-code`：`~/.claude/projects/**/*.jsonl` 会话日志，逐条解析 usage 事件，`turnKey` 取用户消息 id 链。
+  - `codex`：`~/.codex/sessions/` 的 rollout 记录，解析 token 计数字段；旧版只给累计值时按差分求单次增量，reset 自动识别。
+  - `opencode` / `cline`：各自本地存储的只读适配（能力矩阵随版本迭代）。
+- **多源聚合查询层**（`scripts/lib/collect-core.mjs` 的 `aggregateRate` / `aggregateTurn` / `agentStatus`）：按 `providers` 配置并发采集、归一化后按完成时刻合并。**单源时走原路径**（`isFastPath`），不引入额外开销。
+- **能力降级**：四个第三方客户端都不记录 TTFT，`capabilities.ttft = false`，`ttftMs` 恒为 `null`，UI/命令按能力显示 `-` 而不是编数字。
+- **`/tps` 作用域参数**：`--agent <id>` 圈定单一数据源，`--session <id>` 圈定会话；新增 `--agents` 列出每个源的探测结果与样本数。缺省行为不变。
+- **配置字段 `providers`**（只增不删）：默认 `["zcode"]`；环境变量 `TPS_PROVIDERS` 可临时覆盖。可直接编辑 `~/.zcode/tps-monitor.config.json`，或经大屏 `GET/POST /api/config` 读写同一字段（与 `appearance` 相互独立，只传一段也能用）；大屏内的「数据源」面板属 V2.5.0 展示层范围。
+- **JSONL 增量游标**：`createJsonlReader` 按字节游标增量读取，单行 JSON 解析失败只跳过该行；目录扫描带 2s mtime 缓存，2 万条记录上限。
+- **故障隔离**：任一源数据损坏/格式变更只让它自己那一项报错并说明原因，其余源照常出数；未安装的客户端自动跳过。
+
+### 变更
+- **MCP 返回结构扩展**：`tps_snapshot` / `tps_watch` 结果新增 `provider` 与 `sessionId` 两个字段（**只增字段、不改名**），老客户端忽略时行为不变；工具名与 `content` / `isError` 原样保留。
+- **doctor 多源自检**：新增「数据源(多 agent)」检查项，对每个启用的源单独给「可用/不可用 + 原因 + 数据格式 + 样本条数」；已安装但无数据只提示不算失败。
+- **usage 数据库自检加固**：能打开不代表读得了——文件被截断/不是 SQLite 时 `dbCheck` 现在返回失败项并给出修复提示，而不是让整份自检报告崩掉。
+- **Electron 桌面客户端同步切换**：悬浮条与大屏经 `token-rate.mjs` 取数，该模块即聚合层，因此自动切到多源聚合，无额外改动；单源默认配置下与 V2.3.0 行为一致。
+
+### 约束与口径
+- 插件核心**零新增 npm 依赖**，Provider 全部纯 Node 实现；全部只读本地文件，不联网、无遥测。
+- **钩子热路径不读 JSONL**：Stop / prompt-submit 钩子仍直连 zcode usage 库，即使 `providers` 配满五个源，钩子输出与只用 zcode 时逐字节相同（有专项测试守着）。
+- 第三方源的生成耗时口径：Claude Code 取相邻请求时间差（>120s 视为无效），Codex 取 token_count 事件间隔，OpenCode 取客户端自记的 created/completed，Cline 取相邻请求差；都是**估算值**，与 ZCode 库直接落库的 `first_token_at` / `completed_at` 不可直接横向比较。
+
+### 版本
+- 新增 `scripts/lib/providers/`（`index.mjs` 注册表 + `common.mjs` 归一化 + `zcode` / `claude-code` / `codex` / `opencode` / `cline` 五个 Provider）、`test/providers.test.mjs`；插件本体零新增依赖。
+- `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / 根 `package.json` 统一升级 **2.4.0**。
+- 新增 `test/providers.test.mjs`（21 条：每源一组只读夹具、能力降级、多源合并、单源字节一致、损坏隔离、doctor 多源自检、CLI 作用域参数、MCP 结构、大屏 SSE、钩子不读 JSONL）；单元测试 **55 → 76**，`node --test` 全绿。
+
+## v2.3.0（Electron 桌面客户端：主窗口 + 悬浮条 + 托盘 + 自动更新）
+
+目标：在不动插件本体的前提下，新增一个**可选的跨平台 Electron 桌面客户端**——仪表盘主窗口、透明置顶悬浮条、托盘菜单、开机自启与自动更新，并打通三平台打包流水线。插件核心（hooks / scripts / mcp / commands / dashboard server.mjs）零依赖原则不变，钩子、命令、MCP 行为零改动，浏览器大屏保持可用。
+
+### 新增
+- **Electron 工程**：新增 `electron/`（`main.mjs` 主进程、`preload.cjs` 预加载、`renderer/overlay.html` 悬浮条渲染层、`lib/` 纯逻辑）与**工作区级根 `package.json`**（`electron` / `electron-builder` 为 devDependency，`electron-updater` 为运行依赖）+ `electron-builder.yml`。桌面客户端是独立分发物，**不进插件市场**，插件目录内不新增 package.json / node_modules。
+- **内嵌大屏服务**：主进程复用插件的大屏服务工厂 `dashboard/server-core.mjs`，以随机端口（`port: 0`）绑定 127.0.0.1、不写 PID 文件、不空闲退出，`loadURL` 加载**同一份 index.html**——桌面端与浏览器大屏是同一套页面、同一条 SSE 通路。
+- **悬浮条窗口**：无边框透明置顶小窗，显示当前 tok/s；`-webkit-app-region: drag` 可拖拽，位置/尺寸持久化到 `~/.zcode/tps-monitor.desktop.json`；点击穿透可切换（`setIgnoreMouseEvents(on, { forward: true })`，穿透时仍能收到 mousemove，悬停展开 TTFT / 近5次均 / 累计 tok 详情）；数据由主进程采集循环经 IPC 推送，不走 HTTP。
+- **托盘与窗口管理**：托盘菜单（显示/隐藏悬浮条、打开仪表盘、主窗口置顶、悬浮条点击穿透、开机自启、退出）；关闭主窗口最小化到托盘；单实例锁；窗口尺寸/位置/置顶状态重启后恢复。
+- **开机自启 + 自动更新**：`setLoginItemSettings` 开机自启（仅打包后生效）；`electron-updater` 对接 GitHub Releases，自动下载、退出时安装。
+- **三平台打包流水线**：`.github/workflows/release.yml` 在推送 `v*` 标签时先跑 `node --test`，再矩阵构建 Windows（NSIS 安装包 + portable）/ macOS（dmg）/ Linux（AppImage），产物上传为 Release 附件。
+- **图标生成**：`electron/build/make-icons.mjs` 复用插件现有 SDF 图标生成器，纯 Node 组装 ICO / ICNS 容器（无新增依赖）。
+- **桌面专属按钮**：大屏页头新增「📌 置顶」「▣ 悬浮条」两枚按钮，仅 `html.tps-electron` 下显示，浏览器打开完全不可见。
+
+### 变更
+- **配置互通**：桌面端与浏览器大屏共用同一份 `~/.zcode/tps-monitor.config.json` 的 `appearance` 节（`scripts/lib/config.mjs`），任一端改外观另一端重启即生效；桌面专属状态单独存 `~/.zcode/tps-monitor.desktop.json`，不污染插件配置节。
+- **`overlay.ps1` 退役路径标注**：保留并标注为「无 Electron 时的轻量替代」（零安装、单文件、仅 Windows），自 V2.3.0 起只维护不新增功能，跨平台需求引导至 Electron 客户端。
+
+### 版本
+- 新增 `electron/`（主进程 / 预加载 / 渲染层 / 纯逻辑）、`electron-builder.yml`、`.github/workflows/release.yml`、工作区级 `package.json`；插件本体零新增依赖。
+- `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` 统一升级 **2.3.0**。
+- 新增 `test/desktop.test.mjs`（17 条：悬浮条载荷口径、状态持久化与夹紧、采集循环、ICO/ICNS 容器自洽、IPC 通道一一对应、插件零依赖扫描、桌面按钮默认隐藏、overlay.ps1 标注）；单元测试 **38 → 55**，`node --test` 全绿。
+
+## v2.2.0（性能优化：SSE 推送 + 脏标记重绘 + 预编译语句）
+
+目标：消除通信层无效轮询、渲染层全量重绘、数据层低效 SQL 三类开销，全部优化在 V2.1.0 的渲染管线上进行。钩子速率计算逻辑与输出格式不变，`/tps`、`/tps-doctor` 行为不变（仅 doctor `--json` 增 perf 节），MCP 返回结构不变，配置字段只增不删。
+
+### 新增
+- **SSE 实时推送**：大屏服务新增 `GET /api/events`（`Content-Type: text/event-stream`，纯 `node:http` 实现，零依赖）。三类事件：`token`（新速率样本）、`sys`（系统指标）、`history-append`（历史增量）。连接建立先推一次全量 `snapshot`，之后只推增量；每 15s 一条心跳注释行，断线重连（EventSource 自动重连）再推全量快照。REST 端点 `/api/token-rate`、`/api/metrics` 原样保留，不支持 EventSource 的浏览器自动回退轮询。
+- **钩子耗时诊断日志**：新增零依赖模块 `scripts/lib/perf-log.mjs`，对钩子单次 DB 读取计时并追加写入本地 `~/.zcode/tps-monitor.perf.log`（超 50ms 预算标记 `overBudget`，写失败静默，绝不影响钩子）。
+- **doctor perf 节**：`scripts/doctor.mjs --json` 新增 `perf` 节——最近一次钩子耗时、P50/P95/最大耗时、超预算次数、DB 文件大小、慢查询日志路径、索引全表扫描提示。
+- **建议索引自检**：`scripts/lib/usage-db.mjs` 导出 `SUGGESTED_INDEXES`（两条 DDL）与 `indexHints()`（`EXPLAIN QUERY PLAN` 自检），doctor 检出全表扫描时给出建索引提示。
+- **性能回归测试**：新增 `test/perf.test.mjs`（12 条：SSE 线格式与心跳零载荷、增量包 < 1KB、预编译语句复用、建议索引消除全表扫描、2 万行库查询耗时、钩子预算、大屏 SSE 端到端）。
+
+### 变更
+- **通信层**：`index.html` 改用 EventSource 按事件类型局部更新 DOM/canvas，`setInterval` 仅保留时钟；服务端单条 1s 采集 tick 只读一次库供全部 SSE 客户端复用。
+- **渲染层**：canvas 仅在收到新样本或窗口 resize 时重绘（以最后样本时间戳做脏标记），`devicePixelRatio × 尺寸` 变化才重置 canvas 缓冲；文本节点写入前比对 `textContent`，值不变不写 DOM。
+- **服务端缓存**：CPU 百分比采样（含 250ms 睡眠）在 5s 窗口内缓存复用，SSE 推送间隔放宽至 5s。
+- **悬浮条**：`overlay.ps1` 轮询间隔由 1s 放宽到 2s，主题采样按墙上时钟 5s 一次，文本无变化时跳过 WPF 元素更新。
+- **数据层**：按最新 `turn_id` 圈定本轮的查询统一封装为预编译语句（`node:sqlite StatementSync`，同连接内按 SQL 文本复用），Stop 钩子 5 次重试复用同一只读连接与同一批语句。
+
+### 修复
+- `overlay.ps1` 预存的 PowerShell 解析错误（`0x20 | 0x40 | 0x80 | 0x100` 作为赋值右值不被解析）改为 `-bor` 位运算符——此前该脚本完全无法运行。
+
+### 版本
+- 新增零依赖模块 `scripts/lib/usage-db.mjs`（只读访问层 + 预编译语句 + 索引自检）、`scripts/lib/sse.mjs`（SSE 线格式）、`scripts/lib/perf-log.mjs`（耗时诊断）；core 仍保持零 npm 依赖。
+- `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` 统一升级 **2.2.0**。
+- 单元测试扩充至 **38** 条（新增性能断言 12 条）；`node --test` 全绿。
+
+## v2.1.0（外观自定义 + 液态玻璃）
+
+### 新增
+- **外观配置节** `~/.zcode/tps-monitor.config.json` 新增 `appearance`：`theme`（dark / light / system）、`fontFamily`、`monoFont`、`fontSize`（8–24）、`fontScale`（0.8–1.5）、`accentColor`、`glassIntensity`（0–1，0 为关闭）、`fontUrl`（可选 Web 字体，仅允许 http/https/file）。只增不删，旧配置文件行为不变。
+- **配置读写 API**：大屏服务新增 `GET / POST /api/config`；GET 返回当前外观与配置文件路径，POST 逐字段校验后合并写入（非法字段返回 400 + 字段级错误，不落盘）。
+- **页内设置抽屉**：大屏右上角「⚙ 外观」打开抽屉，主题 / 字体 / 字号 / 缩放 / 主题色 / 玻璃强度 / Web 字体即时保存即时生效；留空的字体字段回落到默认值。
+- **Web 字体动态加载**：`fontUrl` 指向的字体经 FontFace API 静默加载，失败自动回退系统字体栈，不阻塞渲染。
+- **Windows 悬浮条外观对齐**：`overlay.ps1` 读取同一配置节，按配置切换字体与字号；玻璃强度 > 0 时尝试 Acrylic 背景（失败静默回退原透明纯文本形态）。
+- **doctor 外观自检**：`/tps-doctor` 新增外观配置检查（配置文件缺失为提示项、JSON 损坏或字段非法为失败项并给出修复建议；`fontUrl` 可达性仅作提示，不阻断）。
+
+### 变更
+- 大屏样式全面 CSS 变量化：主题色、字体、字号、缩放、玻璃参数均由配置驱动，`html` 根字号按 `fontSize × fontScale` 计算，卡片 / 面板 / 图表全部改用 rem 与 CSS 变量，主题切换无需刷新。
+- **液态玻璃**：默认 `glassIntensity 0.6`，卡片使用半透明底 + `backdrop-filter` 模糊/增饱和 + 内侧高光边 + 多层投影；`@supports not (backdrop-filter)` 时自动降级为实色面板；`glassIntensity: 0` 完全恢复 V2.0.0 实色外观与 12px 圆角。
+- 配置在服务端注入页面（`window.__TPS_CONFIG__`，首屏前生效），彻底消除主题闪烁；`file://` 直开时回退为客户端拉取。
+- 速率曲线 / 系统图表颜色与字体改读 CSS 变量，跟随主题与主题色变化；非 hex 主题色不再拼接 alpha。
+
+### 安全
+- 字体栈字符白名单（拒绝 `; { } < > ( ) \` 等 CSS 破坏字符）、颜色格式校验（hex / rgb(a) / hsl(a) / 常用英文色名）、`fontUrl` 协议白名单（http / https / file），注入式外观配置无法进入页面。
+
+### 版本
+- 新增零依赖共享模块 `scripts/lib/config.mjs`（大屏、doctor、测试共用同一套校验）；`marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` 统一升级 **2.1.0**。
+- 单元测试扩充至 26 条（新增外观配置校验 / 合并写 / 损坏修复 / doctor 外观检查）。
+
 ## v2.0.0（按 zcode-tps-monitor 完整重构：ZCode 原生 Token 速率监控插件）
 
 ### 修复
