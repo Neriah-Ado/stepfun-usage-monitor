@@ -39,14 +39,31 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, screen, ipcMai
 const { startDashboardServer, followedSessionId } = await import(
   pathToFileURL(path.join(PLUGIN, "dashboard", "server-core.mjs")).href
 );
-const { readAppearance, patchAppearance, CONFIG_FILE } = await import(
+const { readAppearance, patchAppearance, CONFIG_FILE, readFocusAgent, patchFocusAgent } = await import(
   pathToFileURL(path.join(PLUGIN, "scripts", "lib", "config.mjs")).href
 );
 // token 速率查询:V2.4.0 起 token-rate.mjs 即多源聚合层(providers 配置,缺省仅 zcode),
-// 悬浮条与大屏因此走同一份归一化结果;单源默认配置下与 V2.3.0 行为完全一致
+// 悬浮条与大屏因此走同一份归一化结果;单源默认配置下与 V2.3.0 行为完全一致。
+// V2.5.0:悬浮条按 focusAgent 圈定来源(缺省 zcode,与 V2.4.0 一致;"all" = 聚合)。
 const { query: tokenRateQuery } = await import(
   pathToFileURL(path.join(PLUGIN, "scripts", "token-rate.mjs")).href
 );
+// agentStatus 给托盘「聚焦数据源」子菜单提供启用源与可用性(带 2s 缓存,菜单刷新频繁)
+const { agentStatus } = await import(
+  pathToFileURL(path.join(PLUGIN, "scripts", "lib", "collect-core.mjs")).href
+);
+let agentStatusCache = null;
+let agentStatusAt = 0;
+function cachedAgentStatus() {
+  if (agentStatusCache && Date.now() - agentStatusAt < 2000) return agentStatusCache;
+  try {
+    agentStatusCache = agentStatus();
+    agentStatusAt = Date.now();
+  } catch (err) {
+    agentStatusCache = [];
+  }
+  return agentStatusCache;
+}
 const { loadState, saveState, mergeBounds } = await import(
   pathToFileURL(path.join(HERE, "lib", "state-store.mjs")).href
 );
@@ -327,8 +344,19 @@ function setOverlayExpanded(on) {
 function startCollector() {
   if (collector) return;
   collector = createOverlayCollector({
-    // sessionId 传 null:每次都重新解析"当前跟随的会话",切会话后悬浮条立刻跟上
-    queryFn: async (sid) => tokenRateQuery(sid || followedSessionId().id),
+    // sessionId 传 null:每次都重新解析"当前跟随的会话",切会话后悬浮条立刻跟上。
+    // V2.5.0:focusAgent 每次采集时现读配置(托盘切换/手改配置文件即刻生效);
+    // 缺省 zcode 在默认 providers=["zcode"] 下与 V2.4.0 的合并查询结果完全一致。
+    // 聚焦第三方源时由该源自己解析"当前会话"(会话 id 与 zcode 不通用);
+    // "all" = 聚合全部启用源。
+    queryFn: async (sid) => {
+      const focus = readFocusAgent();
+      if (focus && focus !== "all") {
+        const baseSid = focus === "zcode" ? (sid || followedSessionId().id) : null;
+        return tokenRateQuery(baseSid, { agent: focus });
+      }
+      return tokenRateQuery(sid || followedSessionId().id);
+    },
     sessionId: null,
     onData: (payload) => {
       if (overlayWin && !overlayWin.isDestroyed()) {
@@ -348,12 +376,42 @@ function stopCollector() {
 
 // ---------- 托盘 ----------
 
+// 切换聚焦数据源:写 config focusAgent(悬浮条采集循环每次采集都现读,即刻生效),
+// overlay.ps1 读同一份配置,天然互通。
+function setFocusAgent(id) {
+  try {
+    patchFocusAgent(id);
+    refreshTrayMenu();
+  } catch (err) {
+    console.error("[focus] 切换聚焦数据源失败:", err.message);
+  }
+}
+
 function refreshTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const ovVisible = state.overlay.visible;
+  // V2.5.0:「聚焦数据源」子菜单 —— 单选悬浮条显示哪个客户端的速率。
+  // "全部(聚合)" 不圈定来源;各源显示可用性,不可用的源也能选(显示空态)。
+  let focusNow = "zcode";
+  try { focusNow = readFocusAgent(); } catch {}
+  const focusItems = [{ label: "全部(聚合)", value: "all" }].concat(
+    cachedAgentStatus().map((a) => ({
+      label: `${a.label}${a.ok ? "" : "(无数据)"}`,
+      value: a.provider,
+    }))
+  );
   const menu = Menu.buildFromTemplate([
     { label: ovVisible ? "隐藏悬浮条" : "显示悬浮条", click: () => toggleOverlay() },
     { label: "打开仪表盘", click: () => showMainWindow() },
+    {
+      label: "聚焦数据源",
+      submenu: focusItems.map((it) => ({
+        label: it.label,
+        type: "radio",
+        checked: focusNow === it.value,
+        click: () => setFocusAgent(it.value),
+      })),
+    },
     { type: "separator" },
     {
       label: "主窗口置顶",

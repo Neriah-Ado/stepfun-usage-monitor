@@ -8,6 +8,9 @@
 //   node token-rate.mjs --session <id>      只统计指定会话
 //   node token-rate.mjs --agents            列出数据源及各自的探测结果
 //   ZCODE_SESSION_ID=xxx node ...           只统计指定会话(--session 优先级更高)
+// V2.5.0 聚合输出:多源时人类可读输出按 provider 分组给出各源速率,--json 附 perProvider;
+// 缺省(单 zcode)不打印这些块,保持既有格式。
+//   ZCODE_SESSION_ID=xxx node ...           只统计指定会话(--session 优先级更高)
 //   ZCODE_USAGE_DB=/path/db.sqlite          指定 ZCode 数据库路径(默认按用户主目录解析)
 // 多 agent(V2.4.0):默认只读 ZCode 自己的 usage 库,输出与 V2.3.0 完全一致;
 // 在 ~/.zcode/tps-monitor.config.json 里配置 "providers": ["zcode","claude-code"]
@@ -100,6 +103,40 @@ function formatSources(r) {
     .join("\n");
 }
 
+// V2.5.0 聚合输出:多源时按数据源分组给出各自速率;
+// 缺省(单 zcode)不打印整块,保持 V2.4.0 原格式。会话作用域与主查询一致:
+// 显式 --session/环境变量时各源按该会话圈定(无数据的源如实显示),
+// 未指定时各源解析自己的"当前会话"。故障隔离:单源读取失败只影响它那一行。
+function formatPerProviderRates(r, scopeSession) {
+  if (!Array.isArray(r.sources) || r.sources.length <= 1) return null;
+  const lines = ["各源速率:"];
+  for (const s of r.sources) {
+    const label = `${s.label}(${s.provider})`;
+    if (!s.ok) {
+      lines.push(`  ⏭ ${label}: 不可用`);
+      continue;
+    }
+    try {
+      const v = query(scopeSession, { agent: s.provider });
+      const l = v.latest;
+      if (!l) {
+        lines.push(`  · ${label}: 当前作用域无数据`);
+        continue;
+      }
+      const seg = [
+        `⚡ ${l.tokPerSec ?? "-"} tok/s`,
+        `首字 ${l.ttftMs != null ? (l.ttftMs / 1000).toFixed(1) : "-"}s`,
+        `输出 ${fmtNum(l.outputTokens)} tok`,
+      ];
+      if (v.session) seg.push(`请求 ${v.session.requests} 次`);
+      lines.push(`  · ${label}: ${seg.join(" · ")}`);
+    } catch (err) {
+      lines.push(`  · ${label}: 读取失败(${err && err.message ? err.message : "未知错误"})`);
+    }
+  }
+  return lines.join("\n");
+}
+
 // --- CLI ---
 if (process.argv[1] && process.argv[1].endsWith("token-rate.mjs")) {
   const json = process.argv.includes("--json");
@@ -150,6 +187,23 @@ if (process.argv[1] && process.argv[1].endsWith("token-rate.mjs")) {
       const opts = { agent, current };
       const r = turnOnly ? queryTurn(sid, opts) : query(sid, opts);
       if (json) {
+        // V2.5.0:多源时附每源视图(缺省单源不加字段,保持输出结构稳定)
+        if (!turnOnly && Array.isArray(r.sources) && r.sources.length > 1) {
+          const pp = {};
+          for (const s of r.sources) {
+            if (!s.ok) continue;
+            try {
+              const v = query(sid, { agent: s.provider });
+              pp[s.provider] = {
+                provider: s.provider,
+                sessionId: v.sessionId,
+                latest: v.latest,
+                session: v.session,
+              };
+            } catch {}
+          }
+          r.perProvider = pp;
+        }
         console.log(JSON.stringify(r, null, 2));
       } else if (turnOnly) {
         if (r.turn) console.log(formatTurnLine(r));
@@ -163,6 +217,8 @@ if (process.argv[1] && process.argv[1].endsWith("token-rate.mjs")) {
         }
         const src = formatSources(r);
         if (src) console.log(`数据源:\n${src}`);
+        const rates = formatPerProviderRates(r, sid);
+        if (rates) console.log(rates);
       }
     }
   }

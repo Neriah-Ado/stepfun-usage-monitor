@@ -25,6 +25,7 @@ description: 查看 TPS 吞吐、延迟分位数、错误率与系统资源快�
 - `--session <id>` 限定单个会话(优先级高于环境变量 `ZCODE_SESSION_ID` / `CLAUDE_SESSION_ID`)。
 - `--agents` 列出本机各数据源的探测结果、当前会话与样本条数(用于回答「为什么没有某个客户端的数据」)。
 - 要同时统计多个客户端,把它们的 id 写进 `~/.zcode/tps-monitor.config.json` 的 `providers` 数组(默认 `["zcode"]`,只增不删的字段);未安装的客户端会被自动跳过,单个源数据损坏不影响其余源。
+- 多源聚合时(V2.5.0),token 速率查询的人类可读输出会按数据源分组给出各源速率(`各源速率:`块),`--json` 附 `perProvider` 字段;缺省单 zcode 时保持原格式。
 - 数据全部来自本机文件,不联网;各客户端的数据来源与统计口径见 README「多 agent 支持」章节。
 
 用户附加要求:$ARGUMENTS

@@ -40,7 +40,6 @@ public class Win32 {
 
 # 物理像素规格
 $STRIP_W = 560; $STRIP_H = 36
-$URL = "http://127.0.0.1:7423/api/token-rate"
 $script:offX = -($STRIP_W + 20)   # 相对 ZCode 窗口右下角的物理偏移(输入框上方偏右)
 $script:offY = -168
 $script:lastRect = $null
@@ -79,6 +78,20 @@ if ($cfgAppearance) {
 $FSZ = if ($cfgSize -gt 0) { [Math]::Round($cfgSize * $cfgScale, 1) } else { 13 }
 $FSZ = [Math]::Min(48, [Math]::Max(8, $FSZ))
 $ACRYLIC_ON = ($cfgGlass -gt 0)
+
+# ---- 聚焦数据源(V2.5.0):config 的 focusAgent 决定悬浮条显示哪个客户端的速率 ----
+# 缺省 zcode —— 默认 providers=["zcode"] 下查询结果与 V2.4.0 完全一致;
+# "all" = 聚合全部启用源;其余值按 ?agent=<id> 圈定单一数据源(REST 只增参数,向后兼容)。
+$script:focusAgent = "zcode"
+if ($cfg -and $cfg.PSObject.Properties.Name -contains "focusAgent" -and $cfg.focusAgent) {
+  $script:focusAgent = [string]$cfg.focusAgent
+}
+$FOCUS_PARAM = if ($script:focusAgent -and $script:focusAgent -ne "all") { "?agent=$($script:focusAgent)" } else { "" }
+$URL = "http://127.0.0.1:7423/api/token-rate$FOCUS_PARAM"
+$FOCUS_LABELS = @{ "zcode" = "ZCode"; "claude-code" = "Claude Code"; "codex" = "Codex"; "opencode" = "OpenCode"; "cline" = "Cline" }
+$script:FOCUS_PREFIX = if ($script:focusAgent -and $script:focusAgent -ne "zcode" -and $script:focusAgent -ne "all") {
+  "[$($FOCUS_LABELS[$script:focusAgent])] "
+} else { "" }
 # 亚克力着色(ARGB):深色底深色薄纱,浅色底浅色薄纱;AccentState=4 为 BlurBehind
 $ACRYLIC_TINT_DARK  = 0x660B1020
 $ACRYLIC_TINT_LIGHT = 0x59F2F4F8
@@ -263,7 +276,8 @@ $timer.Add_Tick({
       # 文本无变化时跳过写入:少一次 WPF 属性变更 → 少一次布局/渲染 pass
       $bigText = if ($null -ne $d.latest.tokPerSec) { [Math]::Round($d.latest.tokPerSec, 0) } else { "-" }
       $ttft = if ($null -ne $d.latest.ttftMs) { [Math]::Round($d.latest.ttftMs / 1000, 1) } else { "-" }
-      $statText = "均$($d.session.avg)  峰$($d.session.max)  ·  TTFT ${ttft}s"
+      # 聚焦非 zcode 数据源时前缀来源名(缺省 zcode 不加前缀,与 V2.4.0 文本一致)
+      $statText = "$($script:FOCUS_PREFIX)均$($d.session.avg)  峰$($d.session.max)  ·  TTFT ${ttft}s"
       if ($bigText -ne $script:lastBig) { $script:lastBig = $bigText; $big.Text = $bigText }
       if ($statText -ne $script:lastStat) { $script:lastStat = $statText; $stat.Text = $statText }
     }

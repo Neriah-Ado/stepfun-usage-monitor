@@ -99,7 +99,7 @@ One line of rate metrics is shown automatically when each reply ends — no manu
 
 Number formatting: per-turn "output" uses exact thousands-separated numbers (e.g. `2,762 tok`); "total" uses compact units — raw below 1k, one decimal for 1k–10k (`9.8k`), rounded for 10k–1M (`51k`), one decimal M above 1M (`73.8M`).
 
-## Multi-agent support (V2.4.0)
+## Multi-agent support (V2.4.0 data layer + V2.5.0 display layer)
 
 Besides ZCode itself, the plugin can read the local usage data of other client tools. The approach is not a bespoke statistic per tool: "read the ZCode usage DB" is first abstracted into a unified **Provider interface**, and each client's data source is then implemented behind that interface. The aggregation layer only ever sees normalized records, so upstream field-name differences (`output_tokens` / `outputTokens` / `tokensOut` / `completion_tokens`…) are contained inside each Provider.
 
@@ -148,6 +148,22 @@ Add a `providers` field to `~/.zcode/tps-monitor.config.json` (**additive only**
 
 Unknown ids are dropped during normalization with a fallback to the default, so a typo can't stop the plugin from starting. The `TPS_PROVIDERS` environment variable (comma-separated) overrides the list at a lower priority than the config file.
 
+### Aggregation display (V2.5.0, appears only with ≥ 2 enabled sources)
+
+With multiple sources enabled, the dashboard gains a **source switcher bar** under the header ("全部 / ZCode / Claude Code / …"), plus two blocks — **grouped cards** (one "rate / TTFT / output / requests" card per source; missing capabilities render as "—") and a **same-axis comparison view** (one rate curve per source, legend marks measured / estimated calibers; focusing a source dims the rest). When a tool has several sessions, each card can dropdown-**focus a historical session** or follow the current one; each source's choice is remembered in browser localStorage.
+
+- The bar is fed by the new `GET /api/agents` endpoint (per-source probe + session list); source-list changes are pushed live over SSE `agents` events.
+- When a single source is focused, its comparison curve uses **that source's own current session** caliber; the top summary card always stays on the followed-session caliber — the two are not comparable across sources, which is inherent to the multi-tool scenario.
+- With a single-source config the bar and the multi-agent section **do not render at all** (identical to V2.4.0); the comparison view polls nothing and redraws only on new samples.
+
+### Overlay focus (focusAgent)
+
+`~/.zcode/tps-monitor.config.json` gains a `focusAgent` field (default `zcode`, `"all"` = aggregate) deciding which client's rate the overlay shows:
+
+- The **Electron tray** gains a "聚焦数据源" radio submenu (annotated with availability); changes take effect immediately, and the overlay shows a source tag when a non-zcode source is focused.
+- **overlay.ps1** reads the same config: the polled URL gains `?agent=<id>` and the stats line a source prefix; unconfigured, its URL is byte-identical to V2.4.0.
+- REST `GET /api/token-rate` accepts optional `?agent=` / `?session=` scoping (unknown source → 400) for per-source scripts.
+
 ### Commands and interfaces
 
 | Usage | Description |
@@ -155,9 +171,11 @@ Unknown ids are dropped during normalization with a fallback to the default, so 
 | `node scripts/token-rate.mjs --agents` | Lists every source's probe result, data format, session count and sample count (`--json` for programmatic use) |
 | `node scripts/token-rate.mjs --agent claude-code` | A single source only; fields degrade when TTFT is unavailable |
 | `node scripts/token-rate.mjs --session <id>` | One session only (takes priority over `ZCODE_SESSION_ID`) |
+| `/tps` (multi-source) | Human-readable output groups rates per source (the "各源速率:" block); `--json` gains `perProvider`; single-source output unchanged |
 | `/tps-doctor` | The "数据源(多 agent)" check reports available / unavailable + reason + data format + sample count per source |
 | MCP `tps_snapshot` / `tps_watch` | Return structures are **additive only**: new `provider` and `sessionId`, plus `sources` / `agents` detail when multiple sources are enabled |
-| Dashboard `/api/config` | Gains read/write for `providers` (independent of `appearance`); the SSE `token` payload carries `provider` |
+| Dashboard `/api/agents` | Enabled-source list + per-source probe + session list (shared by the switcher / cards / session dropdown) |
+| Dashboard `/api/config` | `providers` and `focusAgent` read/write (independent of `appearance`); multi-source SSE snapshots carry `perProvider` |
 
 ### Compliance notes
 
@@ -165,7 +183,6 @@ Unknown ids are dropped during normalization with a fallback to the default, so 
 - **Local files only: no network, no telemetry, nothing reported anywhere.** No client's data directory is ever written to, and the usage DB is connected read-only.
 - **Fault isolation**: if one source's data is corrupt or its format changes, only that source is affected (a failure reason is recorded in `sources`) — the other sources keep reporting and the rest of the plugin is unaffected. JSONL parsing has per-line fault isolation and a 20,000-record cap, so a bad line only skips itself.
 - **The hook hot path never reads JSONL**: the Stop and prompt-submit hooks always talk to the zcode usage DB directly and never go through the aggregation layer — JSONL can reach tens of megabytes, and parsing it would blow the 50ms budget. So even with all five sources configured, hook output is byte-identical to a zcode-only setup.
-- The multi-agent aggregation UI is V2.5.0's scope; this release delivers the data and command layers only.
 
 ## Installation (three ways, pick one)
 
@@ -326,7 +343,7 @@ A new `appearance` section lives in `~/.zcode/tps-monitor.config.json` (alongsid
 | `ZCODE_USAGE_DB` | Override the usage database path (default `~/.zcode/cli/db/db.sqlite`) for non-standard installs |
 | `TPS_PROVIDERS` | Override the enabled sources (comma-separated, e.g. `zcode,claude-code`); lower priority than the config file |
 | `TPS_CLAUDE_CODE_HOME` / `TPS_CODEX_HOME` / `TPS_OPENCODE_HOME` / `TPS_CLINE_HOME` | Override the corresponding client's data root, defaulting to each client's official location |
-| `~/.zcode/tps-monitor.config.json` | Local config: `stopHookLine` (Stop-hook rate line switch), `tokenRateLine` (master rate-injection switch), `providers` (multi-agent sources, see above), `appearance` (dashboard appearance, see above) |
+| `~/.zcode/tps-monitor.config.json` | Local config: `stopHookLine` (Stop-hook rate line switch), `tokenRateLine` (master rate-injection switch), `providers` (multi-agent sources), `focusAgent` (overlay focus source, default zcode), `appearance` (dashboard appearance) — see "Configuration" |
 | Dashboard port | `dashboard/server.mjs` listens on `127.0.0.1:7423` by default |
 
 ## How it works
@@ -368,7 +385,7 @@ electron/                             Electron desktop client (V2.3.0, isolated 
 ├─ lib/                               Pure logic: overlay-payload / collect-loop / state-store
 └─ build/make-icons.mjs               Pure-Node ICO / ICNS / PNG icon generation
 plugins/zcode-tps-monitor/
-├─ .zcode-plugin/plugin.json          Plugin manifest (V2.4.0, incl. userConfig.metrics_url)
+├─ .zcode-plugin/plugin.json          Plugin manifest (V2.5.0, incl. userConfig.metrics_url)
 ├─ .claude-plugin/plugin.json         Claude-compatible manifest (same version)
 ├─ .mcp.json                          stdio MCP server definition (tps_snapshot / tps_watch)
 ├─ commands/                          /tps · /tps-doctor · /dashboard
@@ -405,6 +422,7 @@ plugins/zcode-tps-monitor/
 test/config.test.mjs                  Appearance config tests (node --test)
 test/perf.test.mjs                    Performance regression tests (SSE format / increments / statement reuse / hook timings)
 test/providers.test.mjs               Multi-agent Provider tests (per-source fixtures / capability degradation / multi-source merge / corruption isolation / default byte-identity / hooks never read JSONL)
+test/aggregate-view.test.mjs          Multi-agent aggregation display tests (/api/agents / agents event / perProvider / scoping params / grouped output)
 test/desktop.test.mjs                 Electron desktop-client tests (payload semantics / state persistence / collection loop / icon containers / IPC agreement / zero-dependency scan)
 test/token-rate.test.mjs              Test suite (node --test)
 docs/releases/                        Bilingual release notes per version (Chinese + English)
@@ -414,7 +432,7 @@ assets/                               Repository icon (regenerate with node asse
 ## Testing and verification
 
 ```bash
-node --test                                              # test suite (number formatting / turn queries / appearance config / SSE & performance assertions / multi-agent Providers / desktop client, 76 in total)
+node --test                                              # test suite (number formatting / turn queries / appearance config / SSE & performance assertions / multi-agent Providers / aggregation display / desktop client, 88 in total)
 cd plugins/zcode-tps-monitor && node scripts/doctor.mjs  # environment self-check (--json includes the perf and multi-agent source sections)
 ```
 

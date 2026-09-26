@@ -30,6 +30,11 @@ export function buildOverlayPayload(result) {
     sessionId: result && result.sessionId != null ? result.sessionId : null,
     follow: result && result.follow ? result.follow : null,
     model: latest ? latest.model ?? null : null,
+    // V2.5.0:聚焦数据源(id)。缺省 zcode —— 单源默认配置下恒为 "zcode",
+    // 渲染层据此决定是否显示来源标签,与 V2.4.0 视觉一致。
+    // agentScoped:本次查询是否圈定了单一来源(合并聚合时为 false,不显示单一标签)。
+    provider: result && result.provider != null ? result.provider : null,
+    agentScoped: Array.isArray(result && result.sources) ? result.sources.length === 1 : false,
     tokPerSec,
     ttftMs,
     avg,
@@ -52,6 +57,8 @@ export function emptyOverlayPayload(reason) {
     sessionId: null,
     follow: null,
     model: null,
+    provider: null,
+    agentScoped: false,
     tokPerSec: null,
     ttftMs: null,
     avg: null,

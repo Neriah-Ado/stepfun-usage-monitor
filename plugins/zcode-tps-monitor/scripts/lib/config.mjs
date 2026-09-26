@@ -212,3 +212,39 @@ export function patchProviders(patch) {
   writeConfig(next);
   return next.providers;
 }
+
+// ---------- 聚焦数据源(focusAgent,V2.5.0 展示层) ----------
+
+/** 悬浮条/桌面端聚焦的数据源;缺省 zcode,默认配置下行为与 V2.4.0 完全一致。 */
+export const DEFAULT_FOCUS_AGENT = "zcode";
+
+/**
+ * 当前聚焦的数据源。"all" 表示聚合(不圈定单一源);
+ * 字段缺省或非法时回落 zcode(只增不删:旧配置无此字段行为不变)。
+ */
+export function readFocusAgent() {
+  const v = readConfig().focusAgent;
+  if (typeof v === "string" && (v === "all" || canonicalProviderId(v))) return v;
+  return DEFAULT_FOCUS_AGENT;
+}
+
+/**
+ * 合并写入 focusAgent(悬浮条/托盘切换用)。接受已知数据源 id 或 "all";
+ * 其他值抛出带 fieldErrors 的错误,不写文件。其余配置字段原样保留。
+ */
+export function patchFocusAgent(patch) {
+  const current = readConfigStrict();
+  const raw = typeof patch === "string"
+    ? patch
+    : typeof patch?.focusAgent === "string" ? patch.focusAgent : null;
+  if (raw == null || (raw !== "all" && !canonicalProviderId(raw))) {
+    const err = new Error("聚焦数据源配置校验失败");
+    err.fieldErrors = [
+      { field: "focusAgent", message: `取值必须是 ${PROVIDER_IDS.join(" / ")} 或 "all"` },
+    ];
+    throw err;
+  }
+  const next = { ...current, focusAgent: raw };
+  writeConfig(next);
+  return next.focusAgent;
+}

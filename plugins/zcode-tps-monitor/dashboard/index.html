@@ -108,7 +108,7 @@
   html.tps-electron .deskBtn { display: inline-flex; align-items: center; justify-content: center; }
 
   /* ---- 液态玻璃表面 ---- */
-  .card, .mini .m, .panel, #drawer {
+  .card, .mini .m, .panel, #drawer, .agentCard {
     background: var(--surface);
     border: 1px solid var(--surface-line);
     border-radius: var(--radius-card);
@@ -159,6 +159,40 @@
   .bar.warn > div { background: var(--orange); }
   .bar.crit > div { background: var(--red); }
   footer { color: var(--dim); font-size: 0.75rem; text-align: center; }
+
+  /* ---- 多 agent 展示层(V2.5.0):切换条 / 分组卡片 / 对比视图 ----
+     仅在启用 ≥2 个数据源时由 JS 显示;单源时整块 hidden,页面与 V2.4.0 完全一致。
+     纯 CSS + 原生 JS,无任何依赖;能力缺失字段(如第三方源无 TTFT)显示「—」。 */
+  .agentBar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .agentBar .chip {
+    background: var(--surface); border: 1px solid var(--surface-line); color: var(--dim);
+    border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.8125rem; cursor: pointer;
+    font-family: var(--font-ui); backdrop-filter: var(--surface-filter);
+    -webkit-backdrop-filter: var(--surface-filter);
+  }
+  .agentBar .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .agentBar .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .agentBar .chip i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .agentCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.75rem; }
+  .agentCard { padding: 0.75rem 1rem; border-radius: var(--radius-card); }
+  .agentCard .head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.875rem; font-weight: 600; }
+  .agentCard .head i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+  .agentCard .head .fmt { margin-left: auto; font-size: 0.6875rem; color: var(--dim); font-weight: 400; }
+  .agentCard .rate {
+    font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    margin-top: 0.25rem; font-family: var(--font-num); text-shadow: var(--num-shadow);
+  }
+  .agentCard .rate .u { font-size: 0.75rem; color: var(--dim); font-weight: 400; margin-left: 0.2rem; }
+  .agentCard .stats { display: flex; gap: 0.9rem; font-size: 0.75rem; color: var(--dim); margin-top: 0.3rem; }
+  .agentCard .stats b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-num); }
+  .agentCard .sess-label { font-size: 0.6875rem; color: var(--dim); margin-top: 0.45rem; }
+  .agentCard select {
+    margin-top: 0.2rem; width: 100%;
+    background: var(--panel-solid); color: var(--text); border: 1px solid var(--surface-line);
+    border-radius: 0.4rem; padding: 0.25rem 0.4rem; font-size: 0.75rem; font-family: var(--font-ui);
+  }
+  #agentsSection { display: flex; flex-direction: column; gap: 0.75rem; }
+  #cmpHint { font-size: 0.6875rem; color: var(--dim); margin-top: 0.35rem; }
 
   /* ---- 外观设置抽屉 ---- */
   #drawer {
@@ -260,6 +294,8 @@ function loadWebFont(url, stack) {
     <span class="clock"><span class="dot" id="livendot"></span><span id="clock">--:--:--</span></span>
   </header>
 
+  <nav id="agentBar" class="agentBar" hidden aria-label="数据源切换"></nav>
+
   <div class="cards">
     <div class="card">
       <div class="label">最近一次主回复的生成速度</div>
@@ -281,6 +317,17 @@ function loadWebFont(url, stack) {
     <div class="m"><div class="label">会话请求数</div><div class="v"><span class="n" id="cnt">--</span><span class="u">次</span></div></div>
   </div>
 
+  <section id="agentsSection" hidden>
+    <div class="agentCards" id="agentCards"></div>
+    <div class="panel">
+      <h2>多 agent 对比 · 同轴速率
+        <span class="legend" id="cmpLegend"></span>
+      </h2>
+      <canvas id="cmpChart" height="220"></canvas>
+      <div id="cmpHint">各数据源的生成耗时口径不同(实测 / 估算),同轴对比仅供参考;切换条聚焦某源时其余曲线变淡。</div>
+    </div>
+  </section>
+
   <div class="panel">
     <h2>生成速率曲线 <span class="legend"><span><i style="background:var(--green)"></i>tok/s</span><span id="tokrange"></span></span></h2>
     <canvas id="tokChart" height="260"></canvas>
@@ -295,7 +342,7 @@ function loadWebFont(url, stack) {
     <div class="sysrow"><span>主机运行 <b id="uptime">--</b></span><span id="platform">-</span></div>
   </div>
 
-  <footer>SSE 实时推送 · 数据源:ZCode usage 数据库(真实) · 仅统计当前会话主对话请求</footer>
+  <footer><span id="footSrc">SSE 实时推送 · 数据源:ZCode usage 数据库(真实) · 仅统计当前会话主对话请求</span></footer>
 
   <aside id="drawer" aria-label="外观设置">
     <h2>⚙ 外观设置</h2>
@@ -409,6 +456,8 @@ function drawLine(canvas, series, colors, opts = {}) {
   series.forEach((data, si) => {
     if (!data.length) return;
     const color = colors[si];
+    // 聚焦某源时淡化其余曲线(opts.dim[si] = true);默认不淡化
+    ctx.globalAlpha = opts.dim && opts.dim[si] ? 0.22 : 1;
     if (opts.fill && si === 0) {
       const grad = ctx.createLinearGradient(0, 0, 0, h);
       grad.addColorStop(0, withAlpha(color, "33")); grad.addColorStop(1, withAlpha(color, "00"));
@@ -430,6 +479,7 @@ function drawLine(canvas, series, colors, opts = {}) {
     ctx.arc(x(n - 1), y(last), 3, 0, Math.PI * 2);
     ctx.fillStyle = color; ctx.fill();
   });
+  ctx.globalAlpha = 1;
 
   if (opts.avgLine && series[0].length) {
     const avg = series[0].reduce((a, b) => a + b, 0) / series[0].length;
@@ -493,6 +543,8 @@ function applyToken(r) {
     setText("tokrange", "会话 " + (r.sessionId || "").slice(0, 13) + "…");
   }
   if (r.history) applyHistory(r.history);
+  // V2.5.0:多源时的每源 latest/session(分组卡片);单源无此字段,行为不变
+  if (r.perProvider) applyPerProvider(r.perProvider);
 }
 
 function applySys(m) {
@@ -543,10 +595,20 @@ function connectStream() {
     if (d.histWindow) histWindow = Number(d.histWindow) || histWindow;
     applyToken(d.token);
     applySys(d.sys);
+    // V2.5.0:多源时快照携带每源视图(含历史),播种对比曲线的起点
+    if (d.perProvider) seedPerSeries(d.perProvider);
   });
   on("token", applyToken);
   on("sys", applySys);
+  // V2.5.0:agents 事件(数据源列表变化时推送) → 重建切换条与分组卡片
+  on("agents", applyAgents);
   on("history-append", (d) => {
+    // 带 provider 字段的增量进对应源的对比序列;不带字段的走原单源曲线(语义冻结)
+    if (d.provider) {
+      pushPerSample(d.provider, d.item && d.item.tokPerSec != null ? d.item.tokPerSec : null);
+      if (multiSource()) drawComparison();
+      return;
+    }
     if ((d.completedAt || 0) > lastSampleAt) lastSampleAt = d.completedAt;
     tokHist.push(d.tokPerSec ?? null);
     while (histWindow > 0 && tokHist.length > histWindow) tokHist.shift();
@@ -571,6 +633,252 @@ function startPollingFallback() {
 }
 
 window.addEventListener("resize", scheduleDraw);
+
+// ---- 多 agent 展示层(V2.5.0):切换条 / 分组卡片 / 对比视图 / 会话切换器 ----
+// 仅当启用 ≥2 个数据源时显示;单源时整块 hidden,页面与 V2.4.0 完全一致。
+// 纯原生 JS:焦点记忆在 localStorage,会话聚焦走 REST 一次性快照,不新增任何轮询。
+const AGENT_PALETTE = ["--green", "--accent", "--orange", "#b48cff", "#4dd7fa"];
+const AGENT_LABELS = { zcode: "ZCode", "claude-code": "Claude Code", codex: "Codex", opencode: "OpenCode", cline: "Cline" };
+// 口径图例:zcode 的纯生成耗时为实测,第三方源为估算(口径对照见 README「多 agent 支持」)
+const AGENT_CALIBER = { zcode: "实测口径" };
+const agentsState = {
+  data: null,       // /api/agents 或 agents 事件载荷:{ enabled, agents }
+  focus: "all",     // 切换条聚焦(localStorage 记忆;"all" = 全部)
+  perProvider: {},  // token 事件里的每源 latest/session(不含历史,增量走 history-append)
+  series: {},       // 每源 tokPerSec 序列(旧→新),快照播种 + 带 provider 的增量推进
+  fixedView: {},    // 会话聚焦时该源的静态视图(REST 快照)
+  sessFocus: {},    // 每源聚焦的会话 id(localStorage 记忆;空 = 跟随各源当前会话)
+};
+try { agentsState.sessFocus = JSON.parse(localStorage.getItem("tps.sessFocus") || "{}") || {}; } catch {}
+try {
+  const saved = localStorage.getItem("tps.focusAgent");
+  if (saved) agentsState.focus = saved;
+} catch {}
+
+const multiSource = () => Array.isArray(agentsState.data && agentsState.data.enabled) && agentsState.data.enabled.length > 1;
+const agentLabel = (id) => {
+  const a = agentsState.data && agentsState.data.agents;
+  const hit = Array.isArray(a) ? a.find((x) => x.provider === id) : null;
+  return (hit && hit.label) || AGENT_LABELS[id] || id;
+};
+const agentColor = (id) => {
+  const ids = (agentsState.data && agentsState.data.enabled) || [];
+  const idx = Math.max(0, ids.indexOf(id));
+  const raw = AGENT_PALETTE[idx % AGENT_PALETTE.length];
+  return raw.indexOf("--") === 0 ? (cssVar(raw) || "#4da3ff") : raw;
+};
+
+function applyAgents(d) {
+  agentsState.data = d || null;
+  const multi = multiSource();
+  $("agentBar").hidden = !multi;
+  $("agentsSection").hidden = !multi;
+  // 焦点指向的源被移除时回落「全部」
+  if (multi && agentsState.focus !== "all" && !agentsState.data.enabled.includes(agentsState.focus)) {
+    agentsState.focus = "all";
+    try { localStorage.setItem("tps.focusAgent", "all"); } catch {}
+  }
+  setText("footSrc", multi
+    ? "SSE 实时推送 · 数据源:" + agentsState.data.enabled.length + " 个客户端本地数据(全本地只读) · 生成耗时口径各异,横向对比仅供参考"
+    : "SSE 实时推送 · 数据源:ZCode usage 数据库(真实) · 仅统计当前会话主对话请求");
+  if (multi) { renderAgentBar(); renderAgentCards(); drawComparison(); }
+}
+
+async function refreshAgents() {
+  try {
+    const res = await fetch("/api/agents", { cache: "no-store" });
+    if (res.ok) applyAgents(await res.json());
+  } catch {}
+}
+
+function renderAgentBar() {
+  const bar = $("agentBar");
+  const d = agentsState.data;
+  if (!multiSource()) { bar.hidden = true; bar.textContent = ""; return; }
+  bar.hidden = false;
+  bar.textContent = "";
+  const chips = [{ id: "all", label: "全部" }].concat(
+    d.enabled.map((id) => ({ id, label: agentLabel(id) }))
+  );
+  for (const c of chips) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip" + (agentsState.focus === c.id ? " on" : "");
+    if (c.id !== "all") {
+      const dot = document.createElement("i");
+      dot.style.background = agentColor(c.id);
+      b.appendChild(dot);
+    }
+    b.appendChild(document.createTextNode(c.label));
+    b.addEventListener("click", () => setFocus(c.id));
+    bar.appendChild(b);
+  }
+}
+
+function setFocus(id) {
+  agentsState.focus = id;
+  try { localStorage.setItem("tps.focusAgent", id); } catch {}
+  renderAgentBar();
+  renderAgentCards();
+  drawComparison();
+}
+
+function applyPerProvider(pp) {
+  agentsState.perProvider = pp || {};
+  if (multiSource()) { renderAgentCards(); drawComparison(); }
+}
+
+// 快照(连接/重连)播种:每源序列以服务端历史为起点,之后只吃增量
+function seedPerSeries(pp) {
+  agentsState.perProvider = pp || {};
+  agentsState.series = {};
+  for (const [id, v] of Object.entries(agentsState.perProvider)) {
+    const hist = v && Array.isArray(v.history) ? v.history : [];
+    const pts = hist.slice().reverse().map((h) => (h && h.tokPerSec != null ? h.tokPerSec : null));
+    while (histWindow > 0 && pts.length > histWindow) pts.shift();
+    agentsState.series[id] = pts;
+  }
+  if (multiSource()) { renderAgentCards(); drawComparison(); }
+}
+
+function pushPerSample(providerId, tokPerSec) {
+  const arr = agentsState.series[providerId] || (agentsState.series[providerId] = []);
+  arr.push(tokPerSec);
+  while (histWindow > 0 && arr.length > histWindow) arr.shift();
+}
+
+function renderAgentCards() {
+  const wrap = $("agentCards");
+  const d = agentsState.data;
+  if (!multiSource()) { wrap.textContent = ""; return; }
+  wrap.textContent = "";
+  for (const a of d.agents || []) {
+    if (!d.enabled.includes(a.provider)) continue;
+    const pv = agentsState.perProvider[a.provider] || {};
+    const card = document.createElement("div");
+    card.className = "agentCard";
+    if (agentsState.focus === a.provider) card.style.borderColor = agentColor(a.provider);
+    const head = document.createElement("div");
+    head.className = "head";
+    const dot = document.createElement("i");
+    dot.style.background = agentColor(a.provider);
+    head.appendChild(dot);
+    head.appendChild(document.createTextNode(agentLabel(a.provider)));
+    const fmt = document.createElement("span");
+    fmt.className = "fmt";
+    fmt.textContent = a.ok ? (a.format || "") : "无数据";
+    head.appendChild(fmt);
+    card.appendChild(head);
+    // 速率与口径降级:能力缺失字段显示「—」(第三方源无 TTFT),绝不编数字
+    const rate = document.createElement("div");
+    rate.className = "rate";
+    const rv = pv.latest && pv.latest.tokPerSec != null ? pv.latest.tokPerSec : null;
+    rate.appendChild(document.createTextNode(rv == null ? "—" : rv.toFixed(1)));
+    const unit = document.createElement("span");
+    unit.className = "u";
+    unit.textContent = "tok/s";
+    rate.appendChild(unit);
+    card.appendChild(rate);
+    const stats = document.createElement("div");
+    stats.className = "stats";
+    const ttftOk = a.capabilities && a.capabilities.ttft;
+    const ttftV = !ttftOk || !pv.latest || pv.latest.ttftMs == null
+      ? "—"
+      : (pv.latest.ttftMs / 1000).toFixed(1) + "s";
+    const mk = (label, val) => {
+      const s = document.createElement("span");
+      s.appendChild(document.createTextNode(label + " "));
+      const b = document.createElement("b");
+      b.textContent = val;
+      s.appendChild(b);
+      return s;
+    };
+    stats.appendChild(mk("首字", ttftV));
+    stats.appendChild(mk("输出", fmtNum((pv.latest && pv.latest.outputTokens) || 0)));
+    stats.appendChild(mk("请求", (pv.session && pv.session.requests) || 0));
+    card.appendChild(stats);
+    // 会话切换器:同源多会话时单选聚焦(记忆在 localStorage);「当前」= 跟随各源自己的当前会话
+    const list = Array.isArray(a.sessionList) ? a.sessionList : [];
+    if (list.length > 1) {
+      const lab = document.createElement("div");
+      lab.className = "sess-label";
+      lab.textContent = "会话切换(当前 " + String(a.sessionId || "").slice(0, 8) + "…)";
+      card.appendChild(lab);
+      const sel = document.createElement("select");
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "● 跟随当前会话";
+      sel.appendChild(opt0);
+      for (const s of list) {
+        const o = document.createElement("option");
+        o.value = s.sessionId || "";
+        o.textContent = "会话 " + String(s.sessionId || "").slice(0, 8) + "… · " + (s.samples == null ? "?" : s.samples) + " 条";
+        sel.appendChild(o);
+      }
+      const focused = agentsState.sessFocus[a.provider] || "";
+      sel.value = list.some((s) => s.sessionId === focused) ? focused : "";
+      sel.addEventListener("change", () => onSessionFocus(a.provider, sel.value));
+      card.appendChild(sel);
+    }
+    wrap.appendChild(card);
+  }
+}
+
+// 会话聚焦:该源卡片与对比曲线改用 REST 静态快照(不新增轮询);
+// 选回「跟随当前会话」即回到 SSE 实时数据。
+async function onSessionFocus(providerId, sessionId) {
+  if (sessionId) agentsState.sessFocus[providerId] = sessionId;
+  else delete agentsState.sessFocus[providerId];
+  try { localStorage.setItem("tps.sessFocus", JSON.stringify(agentsState.sessFocus)); } catch {}
+  renderAgentCards();
+  if (!sessionId) {
+    delete agentsState.fixedView[providerId];
+    drawComparison();
+    return;
+  }
+  try {
+    const res = await fetch("/api/token-rate?agent=" + encodeURIComponent(providerId) +
+      "&session=" + encodeURIComponent(sessionId), { cache: "no-store" });
+    if (!res.ok) return;
+    const v = await res.json();
+    agentsState.fixedView[providerId] = {
+      provider: providerId,
+      sessionId: v.sessionId,
+      latest: v.latest,
+      session: v.session,
+      history: Array.isArray(v.history) ? v.history : [],
+    };
+    drawComparison();
+  } catch {}
+}
+
+// 对比视图:多源同轴多 series(复用 drawLine),图例标注口径差异,聚焦源外全部淡化
+function drawComparison() {
+  const legend = $("cmpLegend");
+  if (!multiSource()) { legend.textContent = ""; return; }
+  const ids = agentsState.data.enabled;
+  const series = [], colors = [], dims = [], labels = [];
+  for (const id of ids) {
+    const view = agentsState.sessFocus[id] && agentsState.fixedView[id]
+      ? agentsState.fixedView[id]
+      : { history: (agentsState.series[id] || []).slice().reverse().map((tokPerSec) => ({ tokPerSec })) };
+    const hist = Array.isArray(view.history) ? view.history : [];
+    series.push(hist.map((h) => (h && h.tokPerSec != null ? h.tokPerSec : null)));
+    colors.push(agentColor(id));
+    dims.push(agentsState.focus !== "all" && agentsState.focus !== id);
+    labels.push({ label: agentLabel(id), caliber: AGENT_CALIBER[id] || "估算口径" });
+  }
+  legend.textContent = "";
+  labels.forEach((l, i) => {
+    const span = document.createElement("span");
+    const dot = document.createElement("i");
+    dot.style.background = colors[i];
+    span.appendChild(dot);
+    span.appendChild(document.createTextNode(l.label + " · " + l.caliber));
+    legend.appendChild(span);
+  });
+  drawLine($("cmpChart"), series, colors, { dim: dims });
+}
 
 // ---- 外观设置抽屉 ----
 const DEFAULTS = (window.__TPS_CONFIG__ && window.__TPS_CONFIG__.defaults) || {
@@ -679,6 +987,7 @@ $("set-save").addEventListener("click", async () => {
 clock();
 setInterval(clock, 1000);
 connectStream();
+refreshAgents(); // V2.5.0:拉取数据源清单(单源时切换条保持隐藏,与 V2.4.0 一致)
 </script>
 </body>
 </html>

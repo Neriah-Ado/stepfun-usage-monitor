@@ -2,6 +2,35 @@
 
 > 各版本的完整双语 Release Notes 见 [`docs/releases/`](docs/releases/)（中文 + English）。
 
+## v2.5.0（多 agent 聚合展示层：切换条 + 分组卡片 + 同轴对比 + 会话聚焦）
+
+目标：在 V2.4.0 数据层之上补齐**展示层**——大屏、Electron 悬浮条、托盘与 `/tps` 输出同时展示多个 agent,支持切换与对比。数据层除 `agentStatus` 补 `sessionList` 外不再改动;默认 `providers=["zcode"]` 时新 UI 元素一律不出现,输出与 V2.4.0 完全一致。
+
+### 新增
+- **`/api/agents` 端点**:列出已启用的数据源及各自探测结果(标签/能力/格式/可用性/当前会话/会话列表),大屏切换条、分组卡片与会话切换器共用。
+- **SSE `agents` 事件**:数据源列表变化时推送(多 → 单也推,前端据此隐藏切换条);多源连接建立时补推一帧。旧事件字段语义冻结,旧前端逻辑兼容。
+- **大屏 agent 切换条**:「全部 / ZCode / Claude Code / …」胶囊条,点击聚焦某源(对比曲线中其余变淡);焦点记忆在 localStorage,单源时整条隐藏。
+- **分组卡片**:每 provider 一张「速率 / 首字 / 输出 / 请求」卡片,按能力降级——第三方源无 TTFT 显示「—」而非编数字。
+- **对比视图**:多 agent 速率曲线同轴叠加(复用现有 canvas 绘制,多 series),图例标注各源口径差异(实测 / 估算);空闲不轮询、仍由数据驱动重绘。
+- **会话切换器**:同一工具多会话时单选聚焦(REST 一次性快照,不新增轮询)/ 跟随当前会话;记忆在 localStorage。
+- **悬浮条聚焦数据源**:新配置字段 `focusAgent`(缺省 `zcode`,默认配置下行为与 V2.4.0 一致;`"all"` = 聚合);Electron 托盘新增「聚焦数据源」子菜单,悬浮条聚焦非 zcode 源时显示来源标签。
+- **`/tps` 聚合输出**:多源时人类可读输出按数据源分组(`各源速率:`块),`--json` 附 `perProvider`;缺省单 zcode 保持原格式。
+
+### 变更
+- **`/api/token-rate` 可选作用域参数**:`?agent=<id>`(未知源 400)、`?session=<id>`;聚焦第三方源且未显式给会话时由该源自己解析"当前会话"(会话 id 与 zcode 不通用)。不带参数行为不变。
+- **`agentStatus` 最小补齐**:新增 `sessionList`(≤10 条最近会话),供会话切换器使用,不产生额外读取。
+- **overlay.ps1**:读 `focusAgent` 决定轮询作用域与来源前缀;不配置时 URL 与 V2.4.0 逐字节一致。
+- **悬浮条采集**:每次采集现读 `focusAgent`(托盘切换/手改配置即刻生效)。
+
+### 约束与口径
+- 插件核心(hooks / scripts / mcp / commands)继续零 npm 依赖;大屏为纯 CSS + 原生 JS,无构建工具。
+- 聚焦 zcode(缺省)时查询结果与 V2.4.0 的合并查询完全一致;多源分组卡片与对比曲线是各源"自己的当前会话"口径,顶部主卡片仍为 followed 会话口径——两者横向不可比,详见 README。
+- 数据全本地;配置字段只增不删;MCP 返回结构不变。
+
+### 版本
+- `marketplace.json` / `.zcode-plugin/plugin.json` / `.claude-plugin/plugin.json` / 根 `package.json` 统一升级 **2.5.0**(图标 URL 同步)。
+- 新增 `test/aggregate-view.test.mjs`(12 条):focusAgent 配置、agentStatus.sessionList、/api/agents、SSE agents 事件(连接即推 + 列表变化)、多源 perProvider 快照与 token 事件、单源结构不变、REST 作用域参数、CLI 分组输出、大屏/悬浮条静态结构。单元测试 **76 → 88**,`node --test` 全绿。
+
 ## v2.4.0（多 agent Provider 数据层：Claude Code / Codex / OpenCode / Cline）
 
 目标：把「只读 ZCode 自己的 usage 库」抽象成统一的 Provider 接口，让同一套速率口径也能覆盖 **Claude Code、Codex、OpenCode、Cline** 等客户端工具的本地 usage 数据；同时保持插件核心（hooks / scripts / mcp / commands / dashboard）零 npm 依赖、纯 Node，**默认配置下行为与 V2.3.0 完全一致**。本版只做**数据层与命令层**，多 agent 聚合展示 UI 留到 V2.5.0。

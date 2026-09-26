@@ -378,6 +378,9 @@ export function agentStatus({ cfg, env = process.env } = {}) {
         const sessions = p.listSessions(20) || [];
         entry.sessions = sessions.length;
         entry.lastAt = sessions.length ? sessions[0].lastAt ?? null : null;
+        // sessionList 是 V2.5.0 展示层的最小补齐:大屏「会话切换器」要列出可选会话,
+        // 这里顺手保留探测时已取到的列表(≤10 条),不产生额外读取。
+        entry.sessionList = sessions.slice(0, 10);
         const sid = safeCall(() => p.currentSessionId());
         entry.sessionId = sid ?? null;
         entry.samples = sid ? (p.getUsage(sid, { limit: MAX_MERGE_RECORDS }) || []).length : 0;

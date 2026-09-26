@@ -6,7 +6,7 @@
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2022.5-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
-**V2.4.0**：本仓库不再是 v1.x 的「StepFun API 用量本地监控代理」，而是参照 [shy3130/zcode-tps-monitor](https://github.com/shy3130/zcode-tps-monitor) 重写的 **ZCode 会话级 Token 速率监控插件**：每轮回复结束时自动显示**本轮即时** tok/s——数据直接读取 ZCode usage 数据库，非模型自述、非估算；另附实时监控大屏、斜杠命令、MCP 工具与可选的业务 TPS 监控。V2.1.0 新增**外观自定义**（主题 / 字体 / 字号 / 主题色）与**液态玻璃**大屏；V2.2.0 完成**性能优化**——大屏改 SSE 实时推送（空闲零轮询、仅心跳）、canvas 脏标记重绘、查询预编译语句与建议索引自检、钩子耗时诊断；V2.3.0 新增**Electron 桌面客户端**（可选独立分发物）——仪表盘主窗口、透明置顶悬浮条、托盘、开机自启与自动更新，三平台打包；V2.4.0 新增**多 agent 数据源**——Claude Code、Codex、OpenCode、Cline 的本地会话用量经统一 Provider 接口接入，与 ZCode 数据同屏聚合（默认仍只读 ZCode，行为与 V2.3.0 一致）。**插件本体零 npm 依赖、纯 Node 实现、数据全本地**。
+**V2.5.0**：本仓库不再是 v1.x 的「StepFun API 用量本地监控代理」，而是参照 [shy3130/zcode-tps-monitor](https://github.com/shy3130/zcode-tps-monitor) 重写的 **ZCode 会话级 Token 速率监控插件**：每轮回复结束时自动显示**本轮即时** tok/s——数据直接读取 ZCode usage 数据库，非模型自述、非估算；另附实时监控大屏、斜杠命令、MCP 工具与可选的业务 TPS 监控。V2.1.0 新增**外观自定义**（主题 / 字体 / 字号 / 主题色）与**液态玻璃**大屏；V2.2.0 完成**性能优化**——大屏改 SSE 实时推送（空闲零轮询、仅心跳）、canvas 脏标记重绘、查询预编译语句与建议索引自检、钩子耗时诊断；V2.3.0 新增**Electron 桌面客户端**（可选独立分发物）——仪表盘主窗口、透明置顶悬浮条、托盘、开机自启与自动更新，三平台打包；V2.4.0 新增**多 agent 数据源**——Claude Code、Codex、OpenCode、Cline 的本地会话用量经统一 Provider 接口接入；V2.5.0 补齐**多 agent 聚合展示**——大屏切换条、分组卡片、同轴对比曲线、会话聚焦与悬浮条 focusAgent（默认仍只读 ZCode，新 UI 仅在多源时出现）。**插件本体零 npm 依赖、纯 Node 实现、数据全本地**。
 
 > **从 v1.x 升级**：v1.x（≤ 1.5.11）是通过本地反向代理统计 API 用量的形态，客户端需把 Base URL 指向 `127.0.0.1:8787`。V2.0.0 放弃了代理架构，改为直读 ZCode 自身 usage 数据库——**无需改任何客户端配置，装上即用**。v1.x 的代码保留在 git 历史中（tag `v1.5.10` 及更早提交）。
 
@@ -52,6 +52,7 @@
 - **桌面悬浮条（Windows）** —— `overlay.ps1` 桌面常驻文字悬浮条，随时可见当前速率（无 Electron 时的轻量替代，仅 Windows、不再新增功能）。
 - **Electron 桌面客户端（可选，V2.3.0）** —— 跨平台（Windows / macOS / Linux）桌面形态：仪表盘主窗口、透明置顶悬浮条、托盘、开机自启与自动更新；与浏览器大屏共用同一份页面与配置。
 - **多 agent 数据源（V2.4.0）** —— 同一套「本轮即时 tok/s」口径覆盖 Claude Code、Codex、OpenCode、Cline 的本地会话数据，与 ZCode 自身数据同屏聚合；默认仍只读 ZCode，输出与 V2.3.0 一致。
+- **多 agent 聚合展示（V2.5.0）** —— 大屏新增数据源切换条、每源分组卡片（能力缺失显示「—」）、同轴对比曲线（图例标注实测 / 估算口径）与每源会话切换器；悬浮条与托盘支持 `focusAgent` 聚焦。单源时全部隐藏，与 V2.4.0 视觉一致。
 - **业务 TPS 监控（可选）** —— 配置 `metrics_url` 接入真实业务指标接口（字段自动兼容三层嵌套），未配置时使用内置演示数据；与 Token 速率相互独立。
 - **低开销** —— 钩子一次只读连接完成查询（预编译语句，单次预算 50ms，超支可被 `/tps-doctor` 检出）；canvas 仅在有新样本或窗口变化时重绘；DOM 值不变不写；悬浮条 2s 轮询、无变化跳过更新。
 
@@ -99,7 +100,7 @@ CREATE INDEX IF NOT EXISTS idx_model_usage_status_completed ON model_usage(statu
 
 数字显示规则：每轮「输出」用千分位精确数字（如 `2,762 tok`）；「累计」用紧凑单位——千以下原始、1k~1万一位小数（`9.8k`）、1万~100万取整（`51k`）、百万以上一位小数 M（`73.8M`）。
 
-## 多 agent 支持（V2.4.0）
+## 多 agent 支持（V2.4.0 数据层 + V2.5.0 展示层）
 
 除 ZCode 自身外，插件还能读其他客户端工具的本地用量数据。做法不是给每个工具写一套统计逻辑，而是先把「读 ZCode usage 库」抽象成一个统一的 **Provider 接口**，再把每个客户端的数据源实现到这个接口后面。聚合层只认归一化后的记录，上游字段名的差异（`output_tokens` / `outputTokens` / `tokensOut` / `completion_tokens`…）全部收口在各自的 Provider 内部。
 
@@ -148,6 +149,22 @@ CREATE INDEX IF NOT EXISTS idx_model_usage_status_completed ON model_usage(statu
 
 未知 ID 在归一化时被丢弃并回退默认值，写错一个名字不会让插件起不来。也可用环境变量 `TPS_PROVIDERS` 覆盖（逗号分隔），优先级低于配置文件。
 
+### 聚合展示（V2.5.0，仅在启用 ≥2 个源时出现）
+
+启用多个源后，大屏 header 下方出现**数据源切换条**（全部 / ZCode / Claude Code / …），并新增两块内容——**分组卡片**（每源一张「速率 / 首字 / 输出 / 请求」卡，能力缺失字段显示「—」）与**同轴对比视图**（每源一条速率曲线，图例标注实测 / 估算口径；聚焦某源时其余变淡）。同一工具多会话时卡片内可下拉**聚焦某个历史会话**或跟随当前会话，每个源的记忆独立存于浏览器 localStorage。
+
+- 切换条数据来自新端点 `GET /api/agents`（逐源探测 + 会话列表）；数据源列表变化经 SSE `agents` 事件实时推送。
+- 聚焦单源时对比曲线使用各源**自己的当前会话**口径；顶部主卡片始终是 followed 会话口径——两处横向不可比，是跨工具场景的固有属性。
+- 单源配置下切换条与多 agent 区块**完全不渲染**，页面与 V2.4.0 一致；对比视图空闲零轮询，仍由新样本驱动重绘。
+
+### 悬浮条聚焦（focusAgent）
+
+`~/.zcode/tps-monitor.config.json` 新增 `focusAgent` 字段（缺省 `zcode`，`"all"` = 聚合），决定悬浮条显示哪个客户端的速率：
+
+- **Electron 托盘**新增「聚焦数据源」子菜单（单选，标注各源可用性），写入即生效；悬浮条聚焦非 zcode 源时显示来源标签。
+- **overlay.ps1** 读同一份配置，轮询 URL 追加 `?agent=<id>`，统计行前缀来源名；不配置时 URL 与 V2.4.0 逐字节一致。
+- REST `GET /api/token-rate` 支持可选 `?agent=` / `?session=` 作用域（未知源 400），供脚本按源取数。
+
 ### 命令与接口
 
 | 用法 | 说明 |
@@ -155,9 +172,11 @@ CREATE INDEX IF NOT EXISTS idx_model_usage_status_completed ON model_usage(statu
 | `node scripts/token-rate.mjs --agents` | 列出全部数据源的探测结果、数据格式、会话数与样本数（`--json` 可编程消费） |
 | `node scripts/token-rate.mjs --agent claude-code` | 只统计某个源；无 TTFT 时字段降级显示 |
 | `node scripts/token-rate.mjs --session <id>` | 只统计指定会话（优先于 `ZCODE_SESSION_ID`） |
+| `/tps`（多源时） | 人类可读输出按数据源分组（`各源速率:`块），`--json` 附 `perProvider`；单源保持原格式 |
 | `/tps-doctor` | 「数据源(多 agent)」逐项给出可用 / 不可用 + 原因 + 数据格式 + 样本条数 |
 | MCP `tps_snapshot` / `tps_watch` | 返回结构**只增字段**：新增 `provider` 与 `sessionId`，多源时附 `sources` / `agents` 明细 |
-| 大屏 `/api/config` | 新增 `providers` 读写（与 `appearance` 相互独立）；SSE 快照的 `token` 载荷带上 `provider` |
+| 大屏 `/api/agents` | 已启用数据源清单 + 逐源探测 + 会话列表（切换条 / 卡片 / 会话切换器共用） |
+| 大屏 `/api/config` | `providers` 与 `focusAgent` 读写（与 `appearance` 相互独立）；SSE 多源快照附 `perProvider` |
 
 ### 合规说明
 
@@ -165,7 +184,6 @@ CREATE INDEX IF NOT EXISTS idx_model_usage_status_completed ON model_usage(statu
 - **全部只读本地文件，不联网、无遥测、不上报任何数据**；不会修改任何客户端的数据目录，连接 usage 库时也是只读方式。
 - **故障隔离**：任一源数据损坏或格式变更，只影响该源自己（`sources` 里记一条失败原因），其余源照常出数，插件其余功能不受影响。JSONL 解析带单行故障隔离与 2 万条上限，坏行只跳过自己。
 - **钩子热路径不读 JSONL**：Stop / prompt-submit 钩子始终直连 zcode usage 库，不经聚合层——JSONL 可能到几十 MB，逐条解析会顶破 50ms 预算。因此即使配满五个源，钩子输出与只用 zcode 时逐字节相同。
-- 多 agent 聚合展示 UI 是 V2.5.0 的范围；本版只交付数据层与命令层。
 
 ## 安装（三种方式，任选其一）
 
@@ -368,7 +386,7 @@ electron/                             Electron 桌面客户端（V2.3.0，与插
 ├─ lib/                               纯逻辑：overlay-payload / collect-loop / state-store
 └─ build/make-icons.mjs               纯 Node 生成 ICO / ICNS / PNG 图标
 plugins/zcode-tps-monitor/
-├─ .zcode-plugin/plugin.json          插件清单（V2.4.0，含 userConfig.metrics_url）
+├─ .zcode-plugin/plugin.json          插件清单（V2.5.0，含 userConfig.metrics_url）
 ├─ .claude-plugin/plugin.json         Claude 兼容清单（同版本）
 ├─ .mcp.json                          stdio MCP 服务器定义（tps_snapshot / tps_watch）
 ├─ commands/                          /tps · /tps-doctor · /dashboard
@@ -405,6 +423,7 @@ plugins/zcode-tps-monitor/
 test/config.test.mjs                  外观配置测试（node --test）
 test/perf.test.mjs                    性能回归测试（SSE 格式 / 增量包 / 语句复用 / 钩子耗时）
 test/providers.test.mjs               多 agent Provider 测试（每源夹具 / 能力降级 / 多源合并 / 损坏隔离 / 默认字节一致 / 钩子不读 JSONL）
+test/aggregate-view.test.mjs          多 agent 聚合展示测试（/api/agents / agents 事件 / perProvider / 作用域参数 / 分组输出）
 test/desktop.test.mjs                 Electron 桌面客户端测试（载荷口径 / 状态持久化 / 采集循环 / 图标容器 / IPC 一致 / 零依赖扫描）
 test/token-rate.test.mjs              测试套件（node --test）
 docs/releases/                        各版本双语 Release Notes（中文 + English）
@@ -414,7 +433,7 @@ assets/                               仓库图标（node assets/generate-icon.m
 ## 测试与验证
 
 ```bash
-node --test                                              # 测试套件（数字格式化 / turn 查询 / 外观配置 / SSE 与性能断言 / 多 agent Provider / 桌面客户端等 76 条）
+node --test                                              # 测试套件（数字格式化 / turn 查询 / 外观配置 / SSE 与性能断言 / 多 agent Provider / 聚合展示 / 桌面客户端等 88 条）
 cd plugins/zcode-tps-monitor && node scripts/doctor.mjs  # 环境自检（--json 含 perf 与多 agent 数据源节）
 ```
 

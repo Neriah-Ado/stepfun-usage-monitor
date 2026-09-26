@@ -9,11 +9,11 @@
       "name": "zcode-tps-monitor",
       "source": "./plugins/zcode-tps-monitor",
       "description": "TPS 吞吐监控:每轮回复结束显示本轮即时速率 + 实时监控大屏 + /tps 命令 + MCP 工具;支持配置真实指标接口或使用演示数据。",
-      "version": "2.4.0",
+      "version": "2.5.0",
       "author": {
         "name": "Administrator"
       },
-      "icon": "https://gcore.jsdelivr.net/gh/Neriah-Ado/stepfun-usage-monitor@v2.4.0/assets/icon.png",
+      "icon": "https://gcore.jsdelivr.net/gh/Neriah-Ado/stepfun-usage-monitor@v2.5.0/assets/icon.png",
       "category": "monitoring",
       "keywords": [
         "tps",

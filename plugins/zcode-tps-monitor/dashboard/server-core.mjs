@@ -16,7 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { snapshot, systemMetrics } from "../scripts/lib/collect-core.mjs";
+import { snapshot, systemMetrics, agentStatus } from "../scripts/lib/collect-core.mjs";
 import { query as tokenRateQuery, RATE_ENV } from "../scripts/token-rate.mjs";
 import {
   sseEvent,
@@ -33,7 +33,11 @@ import {
   patchAppearance,
   readProviders,
   patchProviders,
+  readFocusAgent,
+  patchFocusAgent,
+  DEFAULT_FOCUS_AGENT,
 } from "../scripts/lib/config.mjs";
+import { isKnownProviderId } from "../scripts/lib/providers/index.mjs";
 
 // 状态文件:钩子(SessionStart/UserPromptSubmit)记录"用户最后所处的会话"
 export const STATE_FILE = path.join(os.homedir(), ".zcode", "tps-monitor.last-session.json");
@@ -60,6 +64,9 @@ export function renderIndex() {
     injected = JSON.stringify({
       appearance: readAppearance(),
       defaults: DEFAULT_APPEARANCE,
+      // V2.5.0 展示层:首屏就知道是否多源 + 初始聚焦,切换条不必等 SSE 才渲染
+      providers: readProviders(),
+      focusAgent: readFocusAgent(),
     });
   } catch (err) {
     injected = JSON.stringify({ error: err.message });
@@ -123,6 +130,9 @@ export function createDashboardServer(opts = {}) {
   let sysCache = null;
   let sysCacheAt = 0;
   let collectorTimer = null;
+  // V2.5.0 展示层:每源增量游标 + 数据源列表指纹(agents 事件只在列表变化时推送)
+  const perHistAt = new Map();
+  let lastAgentsFp = null;
 
   function sseWrite(res, chunk) {
     try {
@@ -153,13 +163,22 @@ export function createDashboardServer(opts = {}) {
     return sysCache;
   }
 
-  // 连接建立/重连时的全量快照:一次事件带齐 token 全量与系统指标
+  // 连接建立/重连时的全量快照:一次事件带齐 token 全量与系统指标;
+  // 多源时附 perProvider(每源各自的当前会话视图,含历史,供分组卡片与对比视图起步)
   async function sendSnapshot(res) {
     const followed = followedSessionId();
     const r = tokenRateQuery(followed.id);
     r.follow = followed;
     const newest = r.history.length ? r.history[r.history.length - 1].completedAt : 0;
     if (newest > lastHistAt) lastHistAt = newest;
+    const perProvider = perProviderViews();
+    if (perProvider) {
+      for (const [id, v] of Object.entries(perProvider)) {
+        const hist = Array.isArray(v.history) ? v.history : [];
+        const n = hist.length ? hist[hist.length - 1].completedAt : 0;
+        perHistAt.set(id, Math.max(perHistAt.get(id) || 0, n));
+      }
+    }
     sseWrite(
       res,
       sseEvent("snapshot", {
@@ -167,25 +186,91 @@ export function createDashboardServer(opts = {}) {
         sys: await cachedSystemMetrics(),
         histWindow: RATE_ENV.window,
         serverTime: Date.now(),
+        ...(perProvider ? { perProvider } : {}),
       })
     );
   }
 
+  // 每源视图(仅多源时计算):各源解析自己的当前会话,供分组卡片与对比视图使用。
+  // 单源返回 null —— 快照/token 事件与 V2.4.0 逐字节一致,不背多源结构。
+  function perProviderViews() {
+    const ids = readProviders();
+    if (ids.length <= 1) return null;
+    const out = {};
+    for (const id of ids) {
+      try {
+        const v = tokenRateQuery(null, { agent: id });
+        out[id] = {
+          provider: id,
+          sessionId: v.sessionId ?? null,
+          latest: v.latest ?? null,
+          session: v.session ?? null,
+          history: Array.isArray(v.history) ? v.history : [],
+        };
+      } catch (err) {
+        // 故障隔离:单源读取失败只影响它自己那格,其余源照常出数
+        out[id] = { provider: id, error: err && err.message ? err.message : "读取失败" };
+      }
+    }
+    return out;
+  }
+
+  function agentsPayload() {
+    return { enabled: readProviders(), agents: agentStatus() };
+  }
+
+  // 向单个连接补推一帧 agents 事件(连接建立时用),并以此刷新列表指纹基线
+  function sendAgents(res) {
+    lastAgentsFp = readProviders().join(",");
+    sseWrite(res, sseEvent("agents", agentsPayload()));
+  }
+
   async function collectTick() {
     if (!sseClients.size) return;
+    // agents 事件:启用的数据源列表变化时推送(多 → 单也要推,前端据此隐藏切换条)
+    const fp = readProviders().join(",");
+    if (lastAgentsFp !== null && fp !== lastAgentsFp) {
+      broadcast("agents", agentsPayload());
+    }
+    lastAgentsFp = fp;
+
     let r;
     try {
       const followed = followedSessionId();
       r = tokenRateQuery(followed.id);
       const newest = r.history.length ? r.history[r.history.length - 1].completedAt : 0;
-      if (newest > lastHistAt) {
-        // 只推增量:窗口内比游标新的条目(稳态每条 < 1KB)
-        for (const h of r.history) {
-          if (h.completedAt > lastHistAt) broadcast("history-append", { item: h });
+      let perProvider = null;
+      let perNew = false;
+      if (readProviders().length > 1) {
+        const views = perProviderViews();
+        perProvider = {};
+        for (const [id, v] of Object.entries(views)) {
+          const hist = Array.isArray(v.history) ? v.history : [];
+          const cur = perHistAt.get(id) || 0;
+          const newestP = hist.length ? hist[hist.length - 1].completedAt : 0;
+          for (const h of hist) {
+            if (h.completedAt > cur) {
+              // 带 provider 字段的增量:旧前端按字段语义忽略,不会混进单源曲线
+              broadcast("history-append", { provider: id, item: h });
+              perNew = true;
+            }
+          }
+          perHistAt.set(id, Math.max(cur, newestP));
+          // token 事件里的每源视图只带 latest/session(稳态增量保持精悍);
+          // 历史起点在快照里播种,之后靠上面的 history-append 推进
+          perProvider[id] = { provider: id, sessionId: v.sessionId, latest: v.latest, session: v.session };
         }
-        lastHistAt = newest;
+      }
+      if (newest > lastHistAt || perNew) {
+        if (newest > lastHistAt) {
+          // 只推增量:窗口内比游标新的条目(稳态每条 < 1KB)
+          for (const h of r.history) {
+            if (h.completedAt > lastHistAt) broadcast("history-append", { item: h });
+          }
+          lastHistAt = newest;
+        }
         // provider/sessionId 为 V2.4.0 多源聚合新增字段(默认单源下 provider 恒为 zcode);
-        // sources/agents 只在启用多个数据源时才带上,单源路径与 V2.3.0 逐字节一致
+        // sources/agents/perProvider 只在启用多个数据源时才带上,单源路径与 V2.3.0 逐字节一致
         broadcast("token", {
           latest: r.latest,
           session: r.session,
@@ -193,6 +278,7 @@ export function createDashboardServer(opts = {}) {
           provider: r.provider,
           ...(r.sources ? { sources: r.sources } : {}),
           ...(r.agents ? { agents: r.agents } : {}),
+          ...(perProvider ? { perProvider } : {}),
           follow: followed,
         });
       }
@@ -240,6 +326,7 @@ export function createDashboardServer(opts = {}) {
             tokenRateLine: cfg.tokenRateLine,
             configFile: CONFIG_FILE,
             providers: readProviders(),
+            focusAgent: readFocusAgent(),
           });
         } catch (err) {
           sendJson(res, 500, { error: err.message });
@@ -258,18 +345,20 @@ export function createDashboardServer(opts = {}) {
           }
           const patch = body.appearance;
           const providerPatch = body.providers;
-          if (!patch && providerPatch === undefined) {
-            sendJson(res, 400, { error: "缺少 appearance 对象或 providers 数组" });
+          const focusPatch = body.focusAgent === undefined ? undefined : body;
+          if (!patch && providerPatch === undefined && focusPatch === undefined) {
+            sendJson(res, 400, { error: "缺少 appearance 对象、providers 数组或 focusAgent" });
             return;
           }
           if (patch !== undefined && (typeof patch !== "object" || patch === null)) {
             sendJson(res, 400, { error: "appearance 必须是对象" });
             return;
           }
-          // 两段补写相互独立:只传 providers 也能用(多源开关走同一端点,面板 UI 属 V2.5.0)
+          // 三段补写相互独立:只传其中一段也能用(多源开关与聚焦走同一端点)
           const out = { ok: true };
           if (patch) out.appearance = patchAppearance(patch);
           if (providerPatch !== undefined) out.providers = patchProviders(providerPatch);
+          if (focusPatch !== undefined) out.focusAgent = patchFocusAgent(focusPatch);
           sendJson(res, 200, out);
         } catch (err) {
           if (err && err.fieldErrors) {
@@ -281,6 +370,15 @@ export function createDashboardServer(opts = {}) {
         return;
       }
       sendJson(res, 405, { error: "仅支持 GET / POST" });
+      return;
+    }
+    // V2.5.0 展示层:已启用的数据源及其探测结果、会话列表(切换条 / 分组卡片 / 会话切换器共用)
+    if (req.url.startsWith("/api/agents")) {
+      try {
+        sendJson(res, 200, agentsPayload());
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
       return;
     }
     if (req.url.startsWith("/api/events")) {
@@ -298,8 +396,13 @@ export function createDashboardServer(opts = {}) {
       res.on("close", () => dropClient(res));
       sseClients.add(res);
       startCollector();
-      // 重连先推全量快照,之后只走增量
+      // 重连先推全量快照,之后只走增量;多源时再补一帧 agents 事件(切换条数据源)
       sendSnapshot(res).catch(() => {});
+      if (readProviders().length > 1) {
+        try { sendAgents(res); } catch {}
+      } else {
+        lastAgentsFp = readProviders().join(",");
+      }
       return;
     }
     if (req.url.startsWith("/api/metrics")) {
@@ -314,8 +417,25 @@ export function createDashboardServer(opts = {}) {
     }
     if (req.url.startsWith("/api/token-rate")) {
       try {
+        // V2.5.0:可选作用域参数(additive)。agent 圈定单一数据源("all" = 聚合),
+        // session 圈定会话;不带参数时与 V2.4.0 行为一致(跟随会话 + 按 providers 聚合)。
+        // 聚焦单一源且未显式给会话时,由该源自己解析"当前会话"——zcode 仍跟随会话文件
+        // (与 V2.4.0 的 zcode 行为一致),第三方源的会话 id 与 zcode 不同,不能借用。
+        const u = new URL(req.url, "http://127.0.0.1");
+        const agentParam = u.searchParams.get("agent");
+        if (agentParam && agentParam !== "all" && !isKnownProviderId(agentParam)) {
+          sendJson(res, 400, { error: `未知的数据源:${agentParam}` });
+          return;
+        }
         const followed = followedSessionId();
-        const r = tokenRateQuery(followed.id);
+        const session = u.searchParams.get("session");
+        const scoped = Boolean(agentParam) && agentParam !== "all";
+        const sid = scoped && !session && agentParam !== "zcode"
+          ? null
+          : (session || followed.id);
+        const r = tokenRateQuery(sid, {
+          agent: scoped ? agentParam : null,
+        });
         r.follow = followed;
         sendJson(res, 200, r);
       } catch (err) {

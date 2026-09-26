@@ -10,6 +10,7 @@
 | 上下文注入 | `hooks/prompt-submit.mjs` | 每轮对话读取 ZCode usage 数据库,注入上一轮速率作为模型上下文;`{"tokenRateLine": false}` 可关闭 |
 | 会话提示 | `hooks/session-start.mjs` | 会话启动时记录会话 ID,并注入一行使用提示 |
 | 多 agent 数据源 | `scripts/lib/providers/` | 统一 Provider 接口 + 五个内置数据源(zcode / claude-code / codex / opencode / cline);`providers` 配置默认 `["zcode"]`,此时行为与 V2.3.0 逐字节一致 |
+| 多 agent 聚合展示 | `dashboard/` + `focusAgent` | V2.5.0:大屏数据源切换条 / 每源分组卡片(能力缺失显示「—」)/ 同轴对比曲线 + 会话切换器;悬浮条按 `focusAgent`(缺省 zcode)聚焦,托盘可切换;单源时新 UI 全部隐藏 |
 | 自检 | `/tps-doctor`(`scripts/doctor.mjs`) | 检查 Node 版本、数据库与表结构、状态/配置文件、大屏进程、外观配置、多 agent 数据源与性能(perf 节:钩子耗时分布 / 超 50ms 预算次数 / 库文件大小 / 索引全表扫描);`--json` 可编程消费 |
 | 实时大屏 | `dashboard/server.mjs` | 浏览器监控面板,**SSE 实时推送**(`GET /api/events`)取代定时轮询,空闲仅心跳:`/zcode-tps-monitor:dashboard` 拉起,或手动运行;液态玻璃外观可配置(`GET/POST /api/config`),右上角「⚙ 外观」抽屉即时保存 |
 | 悬浮条 | `dashboard/overlay.ps1` | Windows 桌面常驻文字悬浮条;跟随 `appearance` 配置的字体/字号,玻璃强度 > 0 时尝试 Acrylic |
@@ -52,6 +53,7 @@ node scripts/token-rate.mjs --session <id>        # 只看指定会话(优先于
 - **能力降级**:四个第三方客户端均不记录首 token 时刻,`ttft` 一律为 `false`,`ttftMs` 恒为 `null`,显示为 `-`;不拿相邻请求时间差冒充首字延迟。
 - **生成耗时口径不统一**(zcode 实测 `completed_at - first_token_at`;claude-code / cline 相邻请求差;codex `token_count` 事件间隔;opencode 客户端自记 `created`/`completed`),**跨源不可横向比较**。
 - **故障隔离**:`collect-core.mjs` 的 `aggregateRate` 对每个源单独 try/catch,单源损坏只在 `sources` 里记失败原因;未安装的客户端在 `detect()` 阶段跳过。
+- **聚合展示(V2.5.0)**:`/api/agents` 列出启用源与会话列表;SSE `agents` 事件在列表变化时推送;多源快照/事件附 `perProvider`;`/api/token-rate` 支持可选 `?agent=` / `?session=`(未知源 400)。
 - **钩子热路径不读 JSONL**:Stop / prompt-submit 始终直连 zcode usage 库,不经聚合层——因此即使配满五个源,钩子输出与只用 zcode 时逐字节相同。
 - 多源时按完成时刻降序合并(并列按 `providers` 声明顺序,保证可复现),窗口与累计统计跨源求和;`sources` / `agents` 明细只在该字段出现于多源结果中。
 
