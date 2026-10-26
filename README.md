@@ -1,3 +1,7 @@
+> [!NOTE]
+> **本仓库已并入 [stepfun-code-plugins](https://github.com/Neriah-Ado/stepfun-code-plugins)**（2026-10-26），新位置：[`apps/stepfun-usage-monitor`](https://github.com/Neriah-Ado/stepfun-code-plugins/tree/main/apps/stepfun-usage-monitor)。
+> 后续更新仅在 monorepo 进行；本仓库保留作为历史记录（git 历史已随 subtree 完整并入）。
+
 <img src="assets/icon.png" align="right" width="96" alt="zcode-tps-monitor 图标">
 
 # stepfun-usage-monitor — ZCode Token 速率监控
